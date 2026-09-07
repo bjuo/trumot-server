@@ -892,31 +892,36 @@ app.delete('/api/admin/collectors', (req, res) => {
 });
 
 // ----- ייבוא CSV דרך הדפדפן (בלי צורך בגישה לשרת עצמו) -----
-function parseCsvLine(line) {
-  const result = [];
-  let current = '';
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
     if (inQuotes) {
       if (char === '"') {
-        if (line[i + 1] === '"') { current += '"'; i++; } // גרשיים כפולים בתוך שדה מצוטט = גרש אחד
+        if (text[i + 1] === '"') { field += '"'; i++; } // גרשיים כפולים = גרש אחד בתוך שדה מצוטט
         else { inQuotes = false; }
       } else {
-        current += char;
+        field += char;
       }
     } else {
       if (char === '"') { inQuotes = true; }
-      else if (char === ',') { result.push(current); current = ''; }
-      else { current += char; }
+      else if (char === ',') { row.push(field); field = ''; }
+      else if (char === '\r') { /* מתעלמים - מטופל יחד עם \n */ }
+      else if (char === '\n') { row.push(field); field = ''; rows.push(row); row = []; }
+      else { field += char; }
     }
   }
-  result.push(current);
-  return result.map(cell => cell.trim());
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  // מסננים שורות ריקות לגמרי (עלולות להיווצר מרווח בסוף הקובץ)
+  return rows.filter(r => r.some(cell => cell.trim() !== ''));
 }
+
 function readCsvText(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-  return lines.slice(1).map(parseCsvLine); // דילוג על שורת כותרות
+  const rows = parseCsvText(text);
+  return rows.slice(1).map(row => row.map(cell => cell.trim())); // דילוג על שורת כותרות
 }
 
 app.post('/api/admin/import-donors-csv', express.text({ type: '*/*', limit: '5mb' }), (req, res) => {
