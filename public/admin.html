@@ -29,7 +29,7 @@
 
 <div class="card pin-bar">
   <label>קוד גישה (PIN):</label>
-  <input type="password" id="pin" placeholder="הקש קוד">
+  <input type="password" id="pin" placeholder="הקוד שהגדרת">
   <button onclick="loadAll()">התחבר וטען נתונים</button>
   <button class="danger" onclick="closeCampaign()">סגור מגבית ופתח חדשה</button>
   <a href="/telefonim.html" target="_blank" style="align-self:center;">פתח מסך ניהול טלפנים ←</a>
@@ -118,23 +118,102 @@ async function loadAll() {
 
 async function loadDonors() {
   const donors = await api('/api/admin/donors');
-  document.querySelector('#donorsTable tbody').innerHTML = donors.map(d => `
-    <tr>
+  document.querySelector('#donorsTable tbody').innerHTML = donors.map(d => renderDonorRow(d)).join('');
+}
+
+function renderDonorRow(d) {
+  return `
+    <tr data-id="${d.id}">
       <td>${esc(d.street_name)}</td><td>${esc(d.building)}</td><td>${esc(d.apartment)}</td>
       <td>${esc(d.donor_code)}</td><td>${esc(d.name)}</td>
       <td>${(d.amount || 0) + (d.manual || 0)}</td><td>${esc(d.status || '')}</td>
-      <td><button class="danger" onclick="deleteDonor(${d.id})">מחק</button></td>
-    </tr>`).join('');
+      <td>
+        <button onclick="editDonorRow(${d.id})">ערוך</button>
+        <button class="danger" onclick="deleteDonor(${d.id})">מחק</button>
+      </td>
+    </tr>`;
+}
+
+function editDonorRow(id) {
+  const row = document.querySelector(`#donorsTable tr[data-id="${id}"]`);
+  const cells = row.querySelectorAll('td');
+  const vals = [cells[0].textContent, cells[1].textContent, cells[2].textContent, cells[3].textContent, cells[4].textContent];
+  row.innerHTML = `
+    <td><input value="${esc(vals[0])}" id="e_street_${id}"></td>
+    <td><input value="${esc(vals[1])}" id="e_building_${id}" style="width:50px"></td>
+    <td><input value="${esc(vals[2])}" id="e_apartment_${id}" style="width:50px"></td>
+    <td><input value="${esc(vals[3])}" id="e_code_${id}" style="width:60px"></td>
+    <td><input value="${esc(vals[4])}" id="e_name_${id}"></td>
+    <td colspan="2">
+      <button onclick="saveDonorRow(${id})">שמור</button>
+      <button class="secondary" onclick="loadDonors()">בטל</button>
+    </td>`;
+}
+
+async function saveDonorRow(id) {
+  const body = {
+    street_name: document.getElementById('e_street_' + id).value.trim(),
+    street_code: '', // לא ניתן לעריכה כאן - נשאר כפי שהיה
+    building: document.getElementById('e_building_' + id).value.trim(),
+    apartment: document.getElementById('e_apartment_' + id).value.trim(),
+    donor_code: document.getElementById('e_code_' + id).value.trim(),
+    name: document.getElementById('e_name_' + id).value.trim(),
+  };
+  // שולפים את קוד הרחוב הקיים כדי לא לאבד אותו (לא ערכנו אותו כאן)
+  const donors = await api('/api/admin/donors');
+  const existing = donors.find(d => d.id === id);
+  body.street_code = existing ? existing.street_code : '';
+
+  await api('/api/admin/donors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  loadDonors();
 }
 
 async function loadCollectors() {
   const collectors = await api('/api/admin/collectors');
-  document.querySelector('#collectorsTable tbody').innerHTML = collectors.map(c => `
-    <tr>
+  document.querySelector('#collectorsTable tbody').innerHTML = collectors.map(c => renderCollectorRow(c)).join('');
+}
+
+function renderCollectorRow(c) {
+  return `
+    <tr data-id="${c.id}">
       <td>${esc(c.phone)}</td><td>${esc(c.name)}</td><td>${esc(c.street_name)}</td>
       <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td>
-      <td><button class="danger" onclick="deleteCollector(${c.id})">מחק</button></td>
-    </tr>`).join('');
+      <td>
+        <button onclick="editCollectorRow(${c.id})">ערוך</button>
+        <button class="danger" onclick="deleteCollector(${c.id})">מחק</button>
+      </td>
+    </tr>`;
+}
+
+function editCollectorRow(id) {
+  const row = document.querySelector(`#collectorsTable tr[data-id="${id}"]`);
+  const cells = row.querySelectorAll('td');
+  const vals = [cells[0].textContent, cells[1].textContent, cells[2].textContent, cells[3].textContent, cells[4].textContent];
+  row.innerHTML = `
+    <td><input value="${esc(vals[0])}" id="ce_phone_${id}"></td>
+    <td><input value="${esc(vals[1])}" id="ce_name_${id}"></td>
+    <td><input value="${esc(vals[2])}" id="ce_street_${id}"></td>
+    <td><input value="${vals[3] === 'הכל' ? '' : esc(vals[3])}" id="ce_buildings_${id}" placeholder="הכל"></td>
+    <td><input value="${esc(vals[4])}" id="ce_target_${id}" type="number" style="width:80px"></td>
+    <td>
+      <button onclick="saveCollectorRow(${id})">שמור</button>
+      <button class="secondary" onclick="loadCollectors()">בטל</button>
+    </td>`;
+}
+
+async function saveCollectorRow(id) {
+  const collectors = await api('/api/admin/collectors');
+  const existing = collectors.find(c => c.id === id);
+  const body = {
+    phone: document.getElementById('ce_phone_' + id).value.trim(),
+    name: document.getElementById('ce_name_' + id).value.trim(),
+    street_name: document.getElementById('ce_street_' + id).value.trim(),
+    street_code: existing ? existing.street_code : '', // לא ניתן לעריכה כאן
+    buildings: document.getElementById('ce_buildings_' + id).value.trim(),
+    target: Number(document.getElementById('ce_target_' + id).value) || 0,
+  };
+  await api('/api/admin/collectors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  loadCollectors();
 }
 
 async function addDonor() {
