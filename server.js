@@ -669,14 +669,15 @@ function getDistinctBuildingsForAssignments(assignments) {
 }
 
 function donorStatsFor(assignments) {
-  let total = 0, completed = 0, needReturn = 0;
+  let total = 0, completed = 0, needReturn = 0, doneNoReturn = 0;
   getAllDonors().forEach(d => {
     if (!matchesAssignment(assignments, String(d.street_code), d.building)) return;
     total++;
     if (hasAmountSet(d)) completed++;
-    if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') needReturn++;
+    else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') needReturn++;
+    else if (d.status === 'פתחו ולא תרמו') doneNoReturn++;
   });
-  return { total, completed, needReturn };
+  return { total, completed, needReturn, doneNoReturn };
 }
 
 function monthlyTotalForCollector(assignments) {
@@ -777,12 +778,14 @@ app.get('/api/admin/telefonim-view', (req, res) => {
   const result = Object.values(byPhone).map(c => {
     const stats = donorStatsFor(c.assignments);
     const raised = Math.round(monthlyTotalForCollector(c.assignments));
+    const doneCount = stats.completed + stats.doneNoReturn;
+    const donePercent = stats.total > 0 ? Math.round((doneCount / stats.total) * 100) : 100;
     return {
       phone: c.phone, name: c.name, street_name: c.streetsDisplay.join(' | '), buildings: '',
       total: stats.total, completed: stats.completed, needReturn: stats.needReturn,
-      raised, target: c.target || 0,
+      raised, target: c.target || 0, donePercent,
     };
-  }).sort((a, b) => b.raised - a.raised);
+  }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 
   res.json(result);
 });
