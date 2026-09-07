@@ -889,6 +889,73 @@ app.post('/api/admin/import-collectors-csv', express.text({ type: '*/*', limit: 
   }
 });
 
+// ----- סנכרון חי מגוגל שיטס (בלי הורדת CSV ידנית) -----
+// דורש שהגיליון משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות.
+function sheetCsvUrl(spreadsheetId, sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
+  if (!checkPin(req, res)) return;
+  try {
+    const { spreadsheetId, sheetName } = req.body;
+    const url = sheetCsvUrl(spreadsheetId, sheetName || 'תורמים');
+    const response = await fetch(url);
+    if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
+    const csvText = await response.text();
+    const rows = readCsvText(csvText);
+
+    const findExisting = db.prepare('SELECT id FROM donors WHERE street_code = ? AND building = ? AND apartment = ?');
+    const updateBasic = db.prepare('UPDATE donors SET street_name = ?, donor_code = ?, name = ? WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name) VALUES (?, ?, ?, ?, ?, ?)');
+
+    let updated = 0, created = 0;
+    const tx = db.transaction(rows => {
+      rows.forEach(r => {
+        const [street_code, street_name, building, apartment, donor_code, name] = r;
+        if (!street_code || !building || !apartment) return; // שורה חסרה - מדלגים
+        const existing = findExisting.get(street_code, building, apartment);
+        if (existing) {
+          updateBasic.run(street_name, donor_code, name, existing.id);
+          updated++;
+        } else {
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name);
+          created++;
+        }
+      });
+    });
+    tx(rows);
+    res.json({ message: `סונכרן: ${updated} תורמים עודכנו, ${created} תורמים חדשים נוספו. הסכום והסטטוס הקיימים לא נפגעו.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
+  if (!checkPin(req, res)) return;
+  try {
+    const { spreadsheetId, sheetName } = req.body;
+    const url = sheetCsvUrl(spreadsheetId, sheetName || 'מתרימים');
+    const response = await fetch(url);
+    if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
+    const csvText = await response.text();
+    const rows = readCsvText(csvText);
+
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target) VALUES (?, ?, ?, ?, ?, ?)');
+    const tx = db.transaction(rows => {
+      db.prepare('DELETE FROM collectors').run();
+      rows.forEach(r => {
+        if (!r[0]) return;
+        insert.run(normalizePhone(r[0]), r[1], r[2], r[3], r[4] || '', Number(r[5]) || 0);
+      });
+    });
+    tx(rows);
+    res.json({ message: `סונכרנו ${rows.length} מתרימים (הוחלפו במלואם).` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================================
 // עזר לימות
 // ============================================================================
