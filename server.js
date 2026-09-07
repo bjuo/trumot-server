@@ -804,6 +804,15 @@ app.post('/api/admin/donors', (req, res) => {
   res.json({ id: info.lastInsertRowid });
 });
 
+app.put('/api/admin/donors/:id', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const { street_code, street_name, building, apartment, donor_code, name } = req.body;
+  db.prepare(
+    'UPDATE donors SET street_code = ?, street_name = ?, building = ?, apartment = ?, donor_code = ?, name = ? WHERE id = ?'
+  ).run(street_code, street_name, building, apartment, donor_code, name, req.params.id);
+  res.json({ ok: true });
+});
+
 app.delete('/api/admin/donors/:id', (req, res) => {
   if (!checkPin(req, res)) return;
   db.prepare('DELETE FROM donors WHERE id = ?').run(req.params.id);
@@ -828,6 +837,15 @@ app.post('/api/admin/collectors', (req, res) => {
     'INSERT INTO collectors (phone, name, street_code, street_name, buildings, target) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0);
   res.json({ id: info.lastInsertRowid });
+});
+
+app.put('/api/admin/collectors/:id', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const { phone, name, street_code, street_name, buildings, target } = req.body;
+  db.prepare(
+    'UPDATE collectors SET phone = ?, name = ?, street_code = ?, street_name = ?, buildings = ?, target = ? WHERE id = ?'
+  ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0, req.params.id);
+  res.json({ ok: true });
 });
 
 app.delete('/api/admin/collectors/:id', (req, res) => {
