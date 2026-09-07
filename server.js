@@ -19,7 +19,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const DB_FILE = path.join(__dirname, 'trumot.db');
+const DB_FILE = process.env.DB_PATH || path.join(__dirname, 'trumot.db');
 const ADMIN_PIN = process.env.ADMIN_PIN || '2468'; // שנה בהגדרות הסביבה (Environment Variables) בשרת שלך!
 const SESSION_TTL_MS = 3 * 60 * 60 * 1000; // 3 שעות
 
