@@ -45,11 +45,15 @@
 
   .print-title { display: none; }
   @media print {
+    @page { size: A4; margin: 12mm; }
     .setup, .filters, #countdown, .export-btn { display: none !important; }
     .print-title { display: block; margin-bottom: 16px; }
     .card.incomplete { animation: none; border: 2px solid #e24b4a; }
-    body { background: white; padding: 10px; }
-    .grid { grid-template-columns: repeat(2, 1fr); }
+    body { background: white; padding: 0; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .card { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid #ddd; padding: 12px; }
+    .summary-row { break-inside: avoid; page-break-inside: avoid; }
+    .summary-card { box-shadow: none; border: 1px solid #ddd; }
   }
 </style>
 </head>
