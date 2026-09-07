@@ -21,6 +21,11 @@
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
   .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .card.incomplete { border: 2px solid #e24b4a; animation: blink-border 1.4s infinite; }
+  @keyframes blink-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(226,75,74,0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(226,75,74,0); }
+  }
   .card .name { font-size: 19px; font-weight: bold; color: #2c2c2a; }
   .card .phone { font-size: 13px; color: #999; margin-bottom: 10px; }
   .card .street { font-size: 13px; color: #666; margin-bottom: 10px; }
@@ -99,13 +104,11 @@ function render(data) {
   `;
 
   document.getElementById('grid').innerHTML = data.map(c => {
-    const pct = c.target > 0 ? Math.min(100, Math.round((c.raised / c.target) * 100)) : 0;
-    const over = c.target > 0 && c.raised >= c.target;
-    const progressHtml = c.target > 0
-      ? `<div class="progress-wrap"><div class="progress-bar${over ? ' over' : ''}" style="width:${pct}%">${pct}%</div></div>`
-      : `<div class="no-target">לא הוגדר יעד</div>`;
+    const pct = c.donePercent;
+    const incomplete = pct < 100;
+    const progressHtml = `<div class="progress-wrap"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div>`;
     return `
-      <div class="card">
+      <div class="card${incomplete ? ' incomplete' : ''}">
         <div class="name">${esc(c.name)}</div>
         <div class="phone">${esc(c.phone)}</div>
         <div class="street">${esc(c.street_name || '')}</div>
