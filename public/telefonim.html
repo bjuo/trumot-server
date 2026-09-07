@@ -37,6 +37,11 @@
   #err { color: #a32d2d; margin-top: 10px; }
   #lastUpdate { color: #999; font-size: 13px; margin-bottom: 16px; }
   #countdown { color: #999; font-size: 13px; margin-bottom: 16px; }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .filter-btn { padding: 8px 18px; border-radius: 20px; border: 1px solid #ccc; background: white; color: #444; cursor: pointer; font-size: 14px; font-weight: bold; }
+  .filter-btn.active { background: #26215c; color: white; border-color: #26215c; }
+  .filter-btn .count { opacity: 0.75; font-weight: normal; margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -55,11 +60,14 @@
 <div id="lastUpdate"></div>
 <div id="countdown"></div>
 <div class="summary-row" id="summary"></div>
+<div class="filters" id="filters"></div>
 <div class="grid" id="grid"></div>
 
 <script>
 let auto = null;
 let countdown = 15;
+let lastData = [];
+let currentFilter = 'all';
 
 async function load() {
   const pin = document.getElementById('pin').value.trim();
@@ -71,11 +79,42 @@ async function load() {
     const res = await fetch('/api/admin/telefonim-view?pin=' + encodeURIComponent(pin));
     if (!res.ok) { const e = await res.json().catch(() => ({error:'שגיאה'})); errEl.textContent = e.error; return; }
     const data = await res.json();
-    render(data);
+    lastData = data;
+    render();
     document.getElementById('lastUpdate').textContent = 'עודכן לאחרונה: ' + new Date().toLocaleTimeString('he-IL');
   } catch (err) {
     errEl.textContent = 'שגיאה: ' + err.message;
   }
+}
+
+function setFilter(f) {
+  currentFilter = f;
+  render();
+}
+
+function matchesFilter(c) {
+  if (currentFilter === 'done') return c.donePercent === 100;
+  if (currentFilter === 'notstarted') return c.donePercent === 0;
+  if (currentFilter === 'inprogress') return c.donePercent > 0 && c.donePercent < 100;
+  return true;
+}
+
+function renderFilters() {
+  const counts = {
+    all: lastData.length,
+    inprogress: lastData.filter(c => c.donePercent > 0 && c.donePercent < 100).length,
+    notstarted: lastData.filter(c => c.donePercent === 0).length,
+    done: lastData.filter(c => c.donePercent === 100).length,
+  };
+  const tabs = [
+    ['all', 'הכל'],
+    ['inprogress', 'באמצע'],
+    ['notstarted', 'לא התחילו'],
+    ['done', 'סיימו'],
+  ];
+  document.getElementById('filters').innerHTML = tabs.map(([key, label]) =>
+    `<button class="filter-btn${currentFilter === key ? ' active' : ''}" onclick="setFilter('${key}')">${label} <span class="count">(${counts[key]})</span></button>`
+  ).join('');
 }
 
 function startAutoRefresh() {
@@ -90,7 +129,8 @@ function startAutoRefresh() {
 
 function loadAndStart() { load(); startAutoRefresh(); }
 
-function render(data) {
+function render() {
+  const data = lastData;
   const totalRaised = data.reduce((s, c) => s + c.raised, 0);
   const totalTarget = data.reduce((s, c) => s + (c.target || 0), 0);
   const totalDonors = data.reduce((s, c) => s + c.total, 0);
@@ -103,7 +143,10 @@ function render(data) {
     <div class="summary-card"><div class="num">${data.length}</div><div class="label">מתרימים פעילים</div></div>
   `;
 
-  document.getElementById('grid').innerHTML = data.map(c => {
+  renderFilters();
+  const filtered = data.filter(matchesFilter);
+
+  document.getElementById('grid').innerHTML = filtered.map(c => {
     const pct = c.donePercent;
     const incomplete = pct < 100;
     const progressHtml = `<div class="progress-wrap"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div>`;
@@ -119,6 +162,10 @@ function render(data) {
         ${progressHtml}
       </div>`;
   }).join('');
+
+  if (filtered.length === 0) {
+    document.getElementById('grid').innerHTML = '<div style="color:#999;">אין מתרימים בקטגוריה הזו</div>';
+  }
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
