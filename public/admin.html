@@ -22,6 +22,12 @@
   .pin-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
   #status { margin-top: 10px; color: #444; }
   .hint { color: #888; font-size: 12px; margin-bottom: 8px; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab-btn { padding: 10px 24px; border-radius: 10px 10px 0 0; border: 1px solid #ccc; border-bottom: none; background: #e8e8ea; color: #444; cursor: pointer; font-size: 15px; font-weight: bold; }
+  .tab-btn.active { background: white; color: #26215c; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 </style>
 </head>
 <body>
@@ -36,63 +42,83 @@
 </div>
 <div id="status"></div>
 
-<div class="card">
-  <h3>סנכרון חי מגוגל שיטס (בלי הורדת קובץ)</h3>
-  <div class="hint">הגיליון חייב להיות משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות. תורמים: מעדכן שם/קוד בלבד, לא נוגע בסכום/סטטוס. מתרימים: מחליף לגמרי.</div>
-  <div class="row-form">
-    <input id="sheet_id" placeholder="מזהה הגיליון (מה-URL, בין /d/ ל-/edit)" style="flex:2;">
-    <input id="sheet_donors_tab" placeholder="שם טאב תורמים" value="תורמים">
-    <button onclick="syncDonorsFromSheet()">סנכרן תורמים</button>
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtn_donors" onclick="switchTab('donors')">ניהול תורמים</button>
+  <button class="tab-btn" id="tabBtn_collectors" onclick="switchTab('collectors')">ניהול מתרימים</button>
+</div>
+
+<div class="tab-panel active" id="tabPanel_donors">
+  <div class="card">
+    <h3>סנכרון חי מגוגל שיטס (בלי הורדת קובץ)</h3>
+    <div class="hint">הגיליון חייב להיות משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות. מעדכן שם/קוד בלבד, לא נוגע בסכום/סטטוס.</div>
+    <div class="row-form">
+      <input id="sheet_id" placeholder="מזהה הגיליון (מה-URL, בין /d/ ל-/edit)" style="flex:2;">
+      <input id="sheet_donors_tab" placeholder="שם טאב תורמים" value="תורמים">
+      <button onclick="syncDonorsFromSheet()">סנכרן תורמים</button>
+    </div>
   </div>
-  <div class="row-form">
-    <input id="sheet_collectors_tab" placeholder="שם טאב מתרימים" value="מתרימים">
-    <button onclick="syncCollectorsFromSheet()">סנכרן מתרימים</button>
+
+  <div class="card">
+    <h3>ייבוא תורמים מקובץ CSV (חד-פעמי, מהגיליון הישן)</h3>
+    <div class="hint">ייצא מגוגל שיטס: קובץ → הורדה → CSV</div>
+    <div class="row-form">
+      <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
+      <button onclick="importDonorsCsv()">ייבא תורמים</button>
+      <button class="danger" onclick="clearDonors()">מחק את כל התורמים</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>הוספת תורם</h3>
+    <div class="hint">קוד תורם מתחדש מ-1 בכל בניין בנפרד</div>
+    <div class="row-form">
+      <input id="d_street_code" placeholder="קוד רחוב">
+      <input id="d_street_name" placeholder="שם רחוב">
+      <input id="d_building" placeholder="בניין">
+      <input id="d_apartment" placeholder="דירה">
+      <input id="d_code" placeholder="קוד תורם">
+      <input id="d_name" placeholder="שם התורם">
+      <button onclick="addDonor()">הוסף</button>
+    </div>
+    <table id="donorsTable"><thead><tr><th>רחוב</th><th>בניין</th><th>דירה</th><th>קוד</th><th>שם</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
-<div class="card">
-  <h3>ייבוא נתונים מקובץ CSV (חד-פעמי, מהגיליון הישן)</h3>
-  <div class="hint">ייצא מגוגל שיטס: קובץ → הורדה → CSV. עבור פעם על "תורמים" ופעם על "מתרימים"</div>
-  <div class="row-form">
-    <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
-    <button onclick="importDonorsCsv()">ייבא תורמים</button>
-    <button class="danger" onclick="clearDonors()">מחק את כל התורמים</button>
+<div class="tab-panel" id="tabPanel_collectors">
+  <div class="card">
+    <h3>סנכרון חי מגוגל שיטס (בלי הורדת קובץ)</h3>
+    <div class="hint">הגיליון חייב להיות משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות. מחליף את כל המתרימים.</div>
+    <div class="row-form">
+      <input id="sheet_id_c" placeholder="מזהה הגיליון (מה-URL, בין /d/ ל-/edit)" style="flex:2;">
+      <input id="sheet_collectors_tab" placeholder="שם טאב מתרימים" value="מתרימים">
+      <button onclick="syncCollectorsFromSheet()">סנכרן מתרימים</button>
+    </div>
   </div>
-  <div class="row-form">
-    <label>קובץ מתרימים: <input type="file" id="collectorsCsvFile" accept=".csv"></label>
-    <button onclick="importCollectorsCsv()">ייבא מתרימים</button>
-    <button class="danger" onclick="clearCollectors()">מחק את כל המתרימים</button>
-  </div>
-</div>
 
-<div class="card">
-  <h3>הוספת תורם</h3>
-  <div class="hint">קוד תורם מתחדש מ-1 בכל בניין בנפרד</div>
-  <div class="row-form">
-    <input id="d_street_code" placeholder="קוד רחוב">
-    <input id="d_street_name" placeholder="שם רחוב">
-    <input id="d_building" placeholder="בניין">
-    <input id="d_apartment" placeholder="דירה">
-    <input id="d_code" placeholder="קוד תורם">
-    <input id="d_name" placeholder="שם התורם">
-    <button onclick="addDonor()">הוסף</button>
+  <div class="card">
+    <h3>ייבוא מתרימים מקובץ CSV (חד-פעמי, מהגיליון הישן)</h3>
+    <div class="hint">ייצא מגוגל שיטס: קובץ → הורדה → CSV</div>
+    <div class="row-form">
+      <label>קובץ מתרימים: <input type="file" id="collectorsCsvFile" accept=".csv"></label>
+      <button onclick="importCollectorsCsv()">ייבא מתרימים</button>
+      <button class="danger" onclick="clearCollectors()">מחק את כל המתרימים</button>
+    </div>
   </div>
-  <table id="donorsTable"><thead><tr><th>רחוב</th><th>בניין</th><th>דירה</th><th>קוד</th><th>שם</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead><tbody></tbody></table>
-</div>
 
-<div class="card">
-  <h3>הוספת מתרים</h3>
-  <div class="hint">בניינים: מספרים מופרדים בפסיק (למשל "5,7"). ריק = כל הבניינים ברחוב</div>
-  <div class="row-form">
-    <input id="c_phone" placeholder="טלפון">
-    <input id="c_name" placeholder="שם מתרים">
-    <input id="c_street_code" placeholder="קוד רחוב">
-    <input id="c_street_name" placeholder="שם רחוב">
-    <input id="c_buildings" placeholder="בניינים (רשות)">
-    <input id="c_target" placeholder="יעד חודשי" type="number">
-    <button onclick="addCollector()">הוסף</button>
+  <div class="card">
+    <h3>הוספת מתרים</h3>
+    <div class="hint">בניינים: מספרים מופרדים בפסיק (למשל "5,7"). ריק = כל הבניינים ברחוב</div>
+    <div class="row-form">
+      <input id="c_phone" placeholder="טלפון">
+      <input id="c_name" placeholder="שם מתרים">
+      <input id="c_street_code" placeholder="קוד רחוב">
+      <input id="c_street_name" placeholder="שם רחוב">
+      <input id="c_buildings" placeholder="בניינים (רשות)">
+      <input id="c_target" placeholder="יעד חודשי" type="number">
+      <button onclick="addCollector()">הוסף</button>
+    </div>
+    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th></th></tr></thead><tbody></tbody></table>
   </div>
-  <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th></th></tr></thead><tbody></tbody></table>
 </div>
 
 <script>
@@ -317,7 +343,7 @@ async function syncDonorsFromSheet() {
 }
 
 async function syncCollectorsFromSheet() {
-  const spreadsheetId = val('sheet_id');
+  const spreadsheetId = val('sheet_id_c');
   const sheetName = val('sheet_collectors_tab') || 'מתרימים';
   if (!spreadsheetId) { document.getElementById('status').textContent = 'נא למלא מזהה גיליון'; return; }
   document.getElementById('status').textContent = 'מסנכרן...';
@@ -340,6 +366,13 @@ async function clearCollectors() {
   if (!confirm('בטוח? זה ימחק את כל המתרימים לצמיתות.')) return;
   await api('/api/admin/collectors', { method: 'DELETE' });
   loadCollectors();
+}
+
+function switchTab(tab) {
+  ['donors', 'collectors'].forEach(t => {
+    document.getElementById('tabBtn_' + t).classList.toggle('active', t === tab);
+    document.getElementById('tabPanel_' + t).classList.toggle('active', t === tab);
+  });
 }
 
 function val(id) { return document.getElementById(id).value.trim(); }
