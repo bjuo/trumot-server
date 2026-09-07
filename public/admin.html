@@ -42,10 +42,12 @@
   <div class="row-form">
     <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
     <button onclick="importDonorsCsv()">ייבא תורמים</button>
+    <button class="danger" onclick="clearDonors()">מחק את כל התורמים</button>
   </div>
   <div class="row-form">
     <label>קובץ מתרימים: <input type="file" id="collectorsCsvFile" accept=".csv"></label>
     <button onclick="importCollectorsCsv()">ייבא מתרימים</button>
+    <button class="danger" onclick="clearCollectors()">מחק את כל המתרימים</button>
   </div>
 </div>
 
@@ -166,12 +168,27 @@ async function syncTelefonim() {
   }
 }
 
+async function readFileSmartEncoding(file) {
+  const buffer = await file.arrayBuffer();
+  const utf8Text = new TextDecoder('utf-8').decode(buffer);
+  // אם יש הרבה תווי "�" (תו חלופי) - כנראה שהקובץ נשמר ב-Windows-1255 (אקסל עברי) ולא UTF-8
+  const badCharCount = (utf8Text.match(/\uFFFD/g) || []).length;
+  if (badCharCount > 3) {
+    try {
+      return new TextDecoder('windows-1255').decode(buffer);
+    } catch (e) {
+      return utf8Text; // אם הדפדפן לא תומך ב-windows-1255, נחזיר את מה שיש
+    }
+  }
+  return utf8Text;
+}
+
 async function importDonorsCsv() {
   const file = document.getElementById('donorsCsvFile').files[0];
   if (!file) { document.getElementById('status').textContent = 'בחר קובץ קודם'; return; }
-  const text = await file.text();
+  const text = await readFileSmartEncoding(file);
   try {
-    const r = await api('/api/admin/import-donors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: text });
+    const r = await api('/api/admin/import-donors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: text });
     document.getElementById('status').textContent = r.message;
     loadDonors();
   } catch (e) {
@@ -182,14 +199,26 @@ async function importDonorsCsv() {
 async function importCollectorsCsv() {
   const file = document.getElementById('collectorsCsvFile').files[0];
   if (!file) { document.getElementById('status').textContent = 'בחר קובץ קודם'; return; }
-  const text = await file.text();
+  const text = await readFileSmartEncoding(file);
   try {
-    const r = await api('/api/admin/import-collectors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: text });
+    const r = await api('/api/admin/import-collectors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: text });
     document.getElementById('status').textContent = r.message;
     loadCollectors();
   } catch (e) {
     document.getElementById('status').textContent = 'שגיאה: ' + e.message;
   }
+}
+
+async function clearDonors() {
+  if (!confirm('בטוח? זה ימחק את כל התורמים לצמיתות.')) return;
+  await api('/api/admin/donors', { method: 'DELETE' });
+  loadDonors();
+}
+
+async function clearCollectors() {
+  if (!confirm('בטוח? זה ימחק את כל המתרימים לצמיתות.')) return;
+  await api('/api/admin/collectors', { method: 'DELETE' });
+  loadCollectors();
 }
 
 function val(id) { return document.getElementById(id).value.trim(); }
