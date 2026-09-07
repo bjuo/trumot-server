@@ -96,6 +96,7 @@ function handleYemotRequest(req, res) {
     case 'sub4_menu': result = handleSub4Menu(answer, state); break;
     case 'sub4_pick_building': result = handleSub4PickBuilding(answer, state); break;
     case 'sub4_listing': result = handleSub4Listing(answer, state); break;
+    case 'seq_pick_building': result = handleSeqPickBuilding(answer, state); break;
     case 'seq_action': result = handleSeqAction(answer, state); break;
     case 'seq_amount': result = handleSeqAmount(answer, state); break;
     case 'bycode_number': result = handleBycodeNumber(answer, state); break;
@@ -135,15 +136,15 @@ function handleMenuChoice(sel, state) {
   const assignments = state.assignments;
 
   if (sel === '1') {
-    const list = getSortedDonors(assignments);
-    if (list.length === 0) {
-      state.step = 'menu';
-      return 'id_list_message=t-כל התורמים ברחובות שלך כבר הושלמו&' + mainMenuRead(state);
+    const buildings = getDistinctBuildingsForAssignments(assignments);
+    if (buildings.length > 1) {
+      state.step = 'seq_pick_building';
+      state.seqBuildings = buildings;
+      const list = buildings.map(b => `רחוב ${escTts(b.streetName)} בניין ${b.building}`).join(', ');
+      const msg = `t-אתה אחראי על בניינים, ${list}, הקישו את מספר הבניין שברצונך לשמוע, או כוכבית לתפריט הראשי`;
+      return readBuild(msg, 'SeqBuilding', { max: 4, min: 1, say: 'Number' }, state);
     }
-    state.step = 'seq_action';
-    state.seqList = list.map(d => d.id);
-    state.seqIndex = 0;
-    return announceDonorAndAsk(state.seqList[0], state);
+    return startSeqList(assignments, state);
   }
 
   if (sel === '2') {
@@ -220,15 +221,15 @@ function handleSub4Menu(answer, state) {
   }
 
   if (answer === '2') {
-    const list = getSortedDonors(state.assignments);
-    if (list.length === 0) {
-      state.step = 'menu';
-      return 'id_list_message=t-כל התורמים ברחובות שלך כבר הושלמו&' + mainMenuRead(state);
+    const buildings = getDistinctBuildingsForAssignments(state.assignments);
+    if (buildings.length > 1) {
+      state.step = 'seq_pick_building';
+      state.seqBuildings = buildings;
+      const list = buildings.map(b => `רחוב ${escTts(b.streetName)} בניין ${b.building}`).join(', ');
+      const msg = `t-אתה אחראי על בניינים, ${list}, הקישו את מספר הבניין שברצונך לשמוע, או כוכבית לתפריט הראשי`;
+      return readBuild(msg, 'SeqBuilding', { max: 4, min: 1, say: 'Number' }, state);
     }
-    state.step = 'seq_action';
-    state.seqList = list.map(d => d.id);
-    state.seqIndex = 0;
-    return announceDonorAndAsk(state.seqList[0], state);
+    return startSeqList(state.assignments, state);
   }
 
   const msg = 't-מקש לא חוקי, לשמיעת כל התורמים ברצף הקישו 1, לשמיעה עם אפשרות עדכון הקישו 2, לחזרה לתפריט הראשי הקישו כוכבית';
@@ -304,14 +305,44 @@ function handleSub4Listing(answer, state) {
   return buildListingChunk(state);
 }
 
+function startSeqList(assignments, state) {
+  const list = getSortedDonors(assignments);
+  if (list.length === 0) {
+    state.step = 'menu';
+    return 'id_list_message=t-כל התורמים ברחובות שלך כבר הושלמו&' + mainMenuRead(state);
+  }
+  state.step = 'seq_action';
+  state.seqList = list.map(d => d.id);
+  state.seqIndex = 0;
+  return announceDonorAndAsk(state.seqList[0], state);
+}
+
+function handleSeqPickBuilding(building, state) {
+  if (building === '*') {
+    state.step = 'menu';
+    return mainMenuRead(state);
+  }
+  const match = state.seqBuildings.find(b => String(b.building) === String(building));
+  if (!match) {
+    const list = state.seqBuildings.map(b => `רחוב ${escTts(b.streetName)} בניין ${b.building}`).join(', ');
+    const msg = `t-מספר בניין לא נמצא, ${list}, הקישו את מספר הבניין שברצונך לשמוע, או כוכבית לתפריט הראשי`;
+    return readBuild(msg, 'SeqBuilding', { max: 4, min: 1, say: 'Number' }, state);
+  }
+  const scoped = [{ streetCode: match.streetCode, building: match.building }];
+  return startSeqList(scoped, state);
+}
+
 // ============================================================================
 // אפשרות 1 (וגם אפשרות 4 תת-אפשרות 2): הקראה רציפה
 // ============================================================================
 function announceDonorAndAsk(donorId, state) {
   const d = getDonorById(donorId);
+  const isFirst = state.seqIndex === 0;
+  const locationPart = isFirst
+    ? `t-רחוב ${escTts(d.street_name)} בניין ${d.building}, דירה` + '.' + `n-${d.apartment}` + '.'
+    : `t-דירה` + '.' + `n-${d.apartment}` + '.';
   const msg =
-    `t-רחוב ${escTts(d.street_name)} בניין ${d.building}, דירה` + '.' +
-    `n-${d.apartment}` + '.' +
+    locationPart +
     `t-${escTts(d.name)}` + '.' +
     `t-להזנת סכום תרומה הקישו 1, לא פתחו את הדלת הקישו 2, ` +
     'ביקשו לבוא פעם אחרת הקישו 3, פתחו ולא תרמו הקישו 4, ' +
@@ -499,8 +530,8 @@ function handleBycodeAction(action, state) {
   }
   if (STATUS_TEXT[action]) {
     setStatus(donorId, STATUS_TEXT[action]);
-    state.step = 'menu';
-    return 'id_list_message=t-עודכן בהצלחה&' + mainMenuRead(state);
+    state.step = 'bycode_number';
+    return 'id_list_message=t-עודכן בהצלחה&' + askDonorCode(state);
   }
   return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + bycodeActionMenu(state);
 }
@@ -516,8 +547,8 @@ function handleBycodeAmount(amount, state) {
     return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + retry;
   }
   setAmount(state.bycodeId, num);
-  state.step = 'menu';
-  return 'id_list_message=t-עודכן בהצלחה&' + mainMenuRead(state);
+  state.step = 'bycode_number';
+  return 'id_list_message=t-עודכן בהצלחה&' + askDonorCode(state);
 }
 
 // ============================================================================
