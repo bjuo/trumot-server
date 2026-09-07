@@ -893,7 +893,26 @@ app.delete('/api/admin/collectors', (req, res) => {
 
 // ----- ייבוא CSV דרך הדפדפן (בלי צורך בגישה לשרת עצמו) -----
 function parseCsvLine(line) {
-  return line.split(',').map(cell => cell.replace(/^"|"$/g, '').trim());
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') { current += '"'; i++; } // גרשיים כפולים בתוך שדה מצוטט = גרש אחד
+        else { inQuotes = false; }
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"') { inQuotes = true; }
+      else if (char === ',') { result.push(current); current = ''; }
+      else { current += char; }
+    }
+  }
+  result.push(current);
+  return result.map(cell => cell.trim());
 }
 function readCsvText(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
