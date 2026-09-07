@@ -19,7 +19,26 @@ const db = new Database(DB_FILE);
 db.exec(fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8'));
 
 function parseCsvLine(line) {
-  return line.split(',').map(cell => cell.replace(/^"|"$/g, '').trim());
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"') { inQuotes = true; }
+      else if (char === ',') { result.push(current); current = ''; }
+      else { current += char; }
+    }
+  }
+  result.push(current);
+  return result.map(cell => cell.trim());
 }
 
 function readCsv(filePath) {
