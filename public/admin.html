@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ניהול מערכת תרומות</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; background: #f4f4f5; margin: 0; padding: 24px; direction: rtl; }
+  h1 { color: #26215c; }
+  h3 { margin-top: 0; }
+  .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  input, button { font-size: 15px; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
+  button { background: #534ab7; color: white; border: none; cursor: pointer; font-weight: bold; }
+  button:hover { background: #3c3489; }
+  button.danger { background: #e24b4a; }
+  button.secondary { background: #26215c; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  .row-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .row-form input { flex: 1; min-width: 90px; }
+  .pin-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  #status { margin-top: 10px; color: #444; }
+  .hint { color: #888; font-size: 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<h1>ניהול מערכת תרומות</h1>
+
+<div class="card pin-bar">
+  <label>קוד גישה (PIN):</label>
+  <input type="password" id="pin" placeholder="הקוד שהגדרת">
+  <button onclick="loadAll()">התחבר וטען נתונים</button>
+  <button class="danger" onclick="closeCampaign()">סגור מגבית ופתח חדשה</button>
+  <button class="secondary" onclick="syncTelefonim()">סנכרן טאב טלפנים עכשיו</button>
+</div>
+<div id="status"></div>
+
+<div class="card">
+  <h3>הוספת תורם</h3>
+  <div class="hint">קוד תורם מתחדש מ-1 בכל בניין בנפרד</div>
+  <div class="row-form">
+    <input id="d_street_code" placeholder="קוד רחוב">
+    <input id="d_street_name" placeholder="שם רחוב">
+    <input id="d_building" placeholder="בניין">
+    <input id="d_apartment" placeholder="דירה">
+    <input id="d_code" placeholder="קוד תורם">
+    <input id="d_name" placeholder="שם התורם">
+    <button onclick="addDonor()">הוסף</button>
+  </div>
+  <table id="donorsTable"><thead><tr><th>רחוב</th><th>בניין</th><th>דירה</th><th>קוד</th><th>שם</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+
+<div class="card">
+  <h3>הוספת מתרים</h3>
+  <div class="hint">בניינים: מספרים מופרדים בפסיק (למשל "5,7"). ריק = כל הבניינים ברחוב</div>
+  <div class="row-form">
+    <input id="c_phone" placeholder="טלפון">
+    <input id="c_name" placeholder="שם מתרים">
+    <input id="c_street_code" placeholder="קוד רחוב">
+    <input id="c_street_name" placeholder="שם רחוב">
+    <input id="c_buildings" placeholder="בניינים (רשות)">
+    <input id="c_target" placeholder="יעד חודשי" type="number">
+    <button onclick="addCollector()">הוסף</button>
+  </div>
+  <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+function pin() { return document.getElementById('pin').value.trim(); }
+
+async function api(path, opts) {
+  const url = path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin());
+  const res = await fetch(url, opts);
+  if (!res.ok) { const e = await res.json().catch(() => ({error: 'שגיאה'})); throw new Error(e.error || 'שגיאה'); }
+  return res.json();
+}
+
+async function loadAll() {
+  const statusEl = document.getElementById('status');
+  try {
+    await loadDonors();
+    await loadCollectors();
+    statusEl.textContent = 'נטען בהצלחה.';
+  } catch (e) {
+    statusEl.textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function loadDonors() {
+  const donors = await api('/api/admin/donors');
+  document.querySelector('#donorsTable tbody').innerHTML = donors.map(d => `
+    <tr>
+      <td>${esc(d.street_name)}</td><td>${esc(d.building)}</td><td>${esc(d.apartment)}</td>
+      <td>${esc(d.donor_code)}</td><td>${esc(d.name)}</td>
+      <td>${(d.amount || 0) + (d.manual || 0)}</td><td>${esc(d.status || '')}</td>
+      <td><button class="danger" onclick="deleteDonor(${d.id})">מחק</button></td>
+    </tr>`).join('');
+}
+
+async function loadCollectors() {
+  const collectors = await api('/api/admin/collectors');
+  document.querySelector('#collectorsTable tbody').innerHTML = collectors.map(c => `
+    <tr>
+      <td>${esc(c.phone)}</td><td>${esc(c.name)}</td><td>${esc(c.street_name)}</td>
+      <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td>
+      <td><button class="danger" onclick="deleteCollector(${c.id})">מחק</button></td>
+    </tr>`).join('');
+}
+
+async function addDonor() {
+  const body = {
+    street_code: val('d_street_code'), street_name: val('d_street_name'),
+    building: val('d_building'), apartment: val('d_apartment'),
+    donor_code: val('d_code'), name: val('d_name'),
+  };
+  await api('/api/admin/donors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  ['d_street_code','d_street_name','d_building','d_apartment','d_code','d_name'].forEach(id => document.getElementById(id).value = '');
+  loadDonors();
+}
+
+async function addCollector() {
+  const body = {
+    phone: val('c_phone'), name: val('c_name'),
+    street_code: val('c_street_code'), street_name: val('c_street_name'),
+    buildings: val('c_buildings'), target: Number(val('c_target')) || 0,
+  };
+  await api('/api/admin/collectors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  ['c_phone','c_name','c_street_code','c_street_name','c_buildings','c_target'].forEach(id => document.getElementById(id).value = '');
+  loadCollectors();
+}
+
+async function deleteDonor(id) { await api('/api/admin/donors/' + id, { method: 'DELETE' }); loadDonors(); }
+async function deleteCollector(id) { await api('/api/admin/collectors/' + id, { method: 'DELETE' }); loadCollectors(); }
+
+async function closeCampaign() {
+  if (!confirm('בטוח? זה יעביר לארכיון את המגבית הנוכחית ויתחיל אחת חדשה וריקה.')) return;
+  try {
+    const r = await api('/api/admin/close-campaign');
+    document.getElementById('status').textContent = r.message;
+    loadDonors();
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function syncTelefonim() {
+  try {
+    const r = await api('/api/admin/sync-telefonim');
+    document.getElementById('status').textContent = r.message;
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+function val(id) { return document.getElementById(id).value.trim(); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+</script>
+</body>
+</html>
