@@ -751,6 +751,42 @@ app.get('/api/admin/dashboard', (req, res) => {
   res.json(getDashboardData());
 });
 
+app.get('/api/admin/telefonim-view', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const cData = db.prepare('SELECT * FROM collectors ORDER BY name').all();
+
+  const byPhone = {};
+  cData.forEach(c => {
+    const phone = normalizePhone(c.phone);
+    if (!byPhone[phone]) byPhone[phone] = { name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [] };
+    const streetCode = String(c.street_code || '').trim();
+    const buildingsRaw = String(c.buildings || '').trim();
+    const buildings = buildingsRaw.split(',').map(b => b.trim()).filter(Boolean);
+    if (streetCode) {
+      if (buildings.length === 0) {
+        byPhone[phone].assignments.push({ streetCode, building: null });
+        byPhone[phone].streetsDisplay.push(`${c.street_name} (כל הבניינים)`);
+      } else {
+        buildings.forEach(b => byPhone[phone].assignments.push({ streetCode, building: b }));
+        byPhone[phone].streetsDisplay.push(`${c.street_name} (בניין ${buildings.join(', ')})`);
+      }
+    }
+    if (c.target > 0) byPhone[phone].target = c.target;
+  });
+
+  const result = Object.values(byPhone).map(c => {
+    const stats = donorStatsFor(c.assignments);
+    const raised = Math.round(monthlyTotalForCollector(c.assignments));
+    return {
+      phone: c.phone, name: c.name, street_name: c.streetsDisplay.join(' | '), buildings: '',
+      total: stats.total, completed: stats.completed, needReturn: stats.needReturn,
+      raised, target: c.target || 0,
+    };
+  }).sort((a, b) => b.raised - a.raised);
+
+  res.json(result);
+});
+
 app.get('/api/admin/donors', (req, res) => {
   if (!checkPin(req, res)) return;
   res.json(db.prepare('SELECT * FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all());
