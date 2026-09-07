@@ -1,0 +1,17 @@
+{
+  "name": "trumot-server",
+  "version": "2.0.0",
+  "description": "מערכת ניהול תרומות - שרת ייעודי עם SQLite + סנכרון לגיליון טלפנים",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "better-sqlite3": "^11.3.0",
+    "googleapis": "^140.0.1"
+  }
+}

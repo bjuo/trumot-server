@@ -1,0 +1,7 @@
+node_modules/
+trumot.db
+trumot.db-*
+donors.csv
+collectors.csv
+*.json
+!package.json
