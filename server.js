@@ -791,6 +791,53 @@ app.delete('/api/admin/collectors/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- ייבוא CSV דרך הדפדפן (בלי צורך בגישה לשרת עצמו) -----
+function parseCsvLine(line) {
+  return line.split(',').map(cell => cell.replace(/^"|"$/g, '').trim());
+}
+function readCsvText(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  return lines.slice(1).map(parseCsvLine); // דילוג על שורת כותרות
+}
+
+app.post('/api/admin/import-donors-csv', express.text({ type: '*/*', limit: '5mb' }), (req, res) => {
+  if (!checkPin(req, res)) return;
+  try {
+    const rows = readCsvText(req.body);
+    const insert = db.prepare(
+      'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const tx = db.transaction(rows => {
+      rows.forEach(r => {
+        insert.run(r[0], r[1], r[2], r[3], r[4], r[5], Number(r[6]) || 0, Number(r[7]) || 0, r[8] || '', r[9] || null);
+      });
+    });
+    tx(rows);
+    res.json({ message: `יובאו ${rows.length} תורמים.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/import-collectors-csv', express.text({ type: '*/*', limit: '5mb' }), (req, res) => {
+  if (!checkPin(req, res)) return;
+  try {
+    const rows = readCsvText(req.body);
+    const insert = db.prepare(
+      'INSERT INTO collectors (phone, name, street_name, street_code, buildings, target) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const tx = db.transaction(rows => {
+      rows.forEach(r => {
+        insert.run(normalizePhone(r[0]), r[1], r[2], r[3], r[4] || '', Number(r[5]) || 0);
+      });
+    });
+    tx(rows);
+    res.json({ message: `יובאו ${rows.length} מתרימים.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================================
 // עזר לימות
 // ============================================================================
