@@ -771,6 +771,12 @@ app.delete('/api/admin/donors/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete('/api/admin/donors', (req, res) => {
+  if (!checkPin(req, res)) return;
+  db.prepare('DELETE FROM donors').run();
+  res.json({ ok: true });
+});
+
 app.get('/api/admin/collectors', (req, res) => {
   if (!checkPin(req, res)) return;
   res.json(db.prepare('SELECT * FROM collectors ORDER BY name').all());
@@ -788,6 +794,12 @@ app.post('/api/admin/collectors', (req, res) => {
 app.delete('/api/admin/collectors/:id', (req, res) => {
   if (!checkPin(req, res)) return;
   db.prepare('DELETE FROM collectors WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/collectors', (req, res) => {
+  if (!checkPin(req, res)) return;
+  db.prepare('DELETE FROM collectors').run();
   res.json({ ok: true });
 });
 
