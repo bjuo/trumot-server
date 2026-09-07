@@ -37,6 +37,19 @@
 <div id="status"></div>
 
 <div class="card">
+  <h3>ייבוא נתונים מקובץ CSV (חד-פעמי, מהגיליון הישן)</h3>
+  <div class="hint">ייצא מגוגל שיטס: קובץ → הורדה → CSV. עבור פעם על "תורמים" ופעם על "מתרימים"</div>
+  <div class="row-form">
+    <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
+    <button onclick="importDonorsCsv()">ייבא תורמים</button>
+  </div>
+  <div class="row-form">
+    <label>קובץ מתרימים: <input type="file" id="collectorsCsvFile" accept=".csv"></label>
+    <button onclick="importCollectorsCsv()">ייבא מתרימים</button>
+  </div>
+</div>
+
+<div class="card">
   <h3>הוספת תורם</h3>
   <div class="hint">קוד תורם מתחדש מ-1 בכל בניין בנפרד</div>
   <div class="row-form">
@@ -148,6 +161,32 @@ async function syncTelefonim() {
   try {
     const r = await api('/api/admin/sync-telefonim');
     document.getElementById('status').textContent = r.message;
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function importDonorsCsv() {
+  const file = document.getElementById('donorsCsvFile').files[0];
+  if (!file) { document.getElementById('status').textContent = 'בחר קובץ קודם'; return; }
+  const text = await file.text();
+  try {
+    const r = await api('/api/admin/import-donors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: text });
+    document.getElementById('status').textContent = r.message;
+    loadDonors();
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function importCollectorsCsv() {
+  const file = document.getElementById('collectorsCsvFile').files[0];
+  if (!file) { document.getElementById('status').textContent = 'בחר קובץ קודם'; return; }
+  const text = await file.text();
+  try {
+    const r = await api('/api/admin/import-collectors-csv', { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: text });
+    document.getElementById('status').textContent = r.message;
+    loadCollectors();
   } catch (e) {
     document.getElementById('status').textContent = 'שגיאה: ' + e.message;
   }
