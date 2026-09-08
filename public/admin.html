@@ -107,6 +107,13 @@
   </div>
 
   <div class="card">
+    <h3>בדיקת חפיפות בין מתרימים</h3>
+    <div class="hint">מוצא בניינים שהוקצו ליותר ממתרים אחד - יגרום לספירה כפולה בסטטיסטיקות</div>
+    <button onclick="findOverlaps()">מצא חפיפות</button>
+    <div id="overlapsResult" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
     <h3>הוספת מתרים</h3>
     <div class="hint">בניינים: מספרים מופרדים בפסיק או נקודה-פסיק (למשל "5,7"). ריק = כל הבניינים ברחוב</div>
     <div class="row-form">
@@ -369,6 +376,24 @@ async function clearCollectors() {
   if (!confirm('בטוח? זה ימחק את כל המתרימים לצמיתות.')) return;
   await api('/api/admin/collectors', { method: 'DELETE' });
   loadCollectors();
+}
+
+async function findOverlaps() {
+  const resultEl = document.getElementById('overlapsResult');
+  resultEl.textContent = 'בודק...';
+  try {
+    const overlaps = await api('/api/admin/find-overlaps');
+    if (overlaps.length === 0) {
+      resultEl.innerHTML = '<span style="color:#0f6e56;">לא נמצאו חפיפות. הכל תקין.</span>';
+      return;
+    }
+    resultEl.innerHTML = `<div style="color:#e24b4a;font-weight:bold;">נמצאו ${overlaps.length} חפיפות:</div>` +
+      '<table><thead><tr><th>רחוב</th><th>בניין</th><th>מתרימים חופפים</th></tr></thead><tbody>' +
+      overlaps.map(o => `<tr><td>${esc(o.street)}</td><td>${esc(o.building)}</td><td>${esc(o.collectors.join(', '))}</td></tr>`).join('') +
+      '</tbody></table>';
+  } catch (e) {
+    resultEl.textContent = 'שגיאה: ' + e.message;
+  }
 }
 
 function switchTab(tab) {
