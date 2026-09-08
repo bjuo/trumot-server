@@ -630,7 +630,7 @@ function collectorsByPhone() {
     if (!byPhone[phone]) byPhone[phone] = { name: r.name, assignments: [], target: 0 };
     const streetCode = String(r.street_code || '').trim();
     const buildingsRaw = String(r.buildings || '').trim();
-    const buildings = buildingsRaw.split(',').map(b => b.trim()).filter(Boolean);
+    const buildings = buildingsRaw.split(';').map(b => b.trim()).filter(Boolean);
     if (streetCode) {
       if (buildings.length === 0) byPhone[phone].assignments.push({ streetCode, building: null });
       else buildings.forEach(b => byPhone[phone].assignments.push({ streetCode, building: b }));
@@ -793,7 +793,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     if (!byPhone[phone]) byPhone[phone] = { name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [] };
     const streetCode = String(c.street_code || '').trim();
     const buildingsRaw = String(c.buildings || '').trim();
-    const buildings = buildingsRaw.split(',').map(b => b.trim()).filter(Boolean);
+    const buildings = buildingsRaw.split(';').map(b => b.trim()).filter(Boolean);
     if (streetCode) {
       if (buildings.length === 0) {
         byPhone[phone].assignments.push({ streetCode, building: null });
