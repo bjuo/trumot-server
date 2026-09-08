@@ -33,6 +33,18 @@ const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
 db.exec(fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8'));
 
+// מיגרציה בטוחה: מוסיפים עמודות חדשות לטבלה קיימת אם עוד לא קיימות
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`[migration] נוספה עמודה ${column} לטבלת ${table}`);
+  }
+}
+ensureColumn('collectors', 'note_before', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_after', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'collector_status', "TEXT DEFAULT ''");
+
 // ============================================================================
 // מצבי שיחה - זיכרון פשוט (שרת רץ ברציפות, אין צורך ב-CacheService)
 // ============================================================================
@@ -826,7 +838,12 @@ app.get('/api/admin/telefonim-view', (req, res) => {
   const byPhone = {};
   cData.forEach(c => {
     const phone = normalizePhone(c.phone);
-    if (!byPhone[phone]) byPhone[phone] = { name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [] };
+    if (!byPhone[phone]) {
+      byPhone[phone] = {
+        name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [],
+        note_before: c.note_before || '', note_after: c.note_after || '', collector_status: c.collector_status || '',
+      };
+    }
     const streetCode = String(c.street_code || '').trim();
     const buildingsRaw = String(c.buildings || '').trim();
     const buildings = buildingsRaw.split(/[,;]/).map(b => b.trim()).filter(Boolean);
@@ -840,6 +857,10 @@ app.get('/api/admin/telefonim-view', (req, res) => {
       }
     }
     if (c.target > 0) byPhone[phone].target = c.target;
+    // אם למתרים כמה שורות, נשמור את ההערות/סיווג העדכניים ביותר שאינם ריקים
+    if (c.note_before) byPhone[phone].note_before = c.note_before;
+    if (c.note_after) byPhone[phone].note_after = c.note_after;
+    if (c.collector_status) byPhone[phone].collector_status = c.collector_status;
   });
 
   const result = Object.values(byPhone).map(c => {
@@ -847,10 +868,12 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     const raised = Math.round(monthlyTotalForCollector(c.assignments));
     const doneCount = stats.completed + stats.doneNoReturn;
     const donePercent = stats.total > 0 ? Math.round((doneCount / stats.total) * 100) : 100;
+    const remaining = c.target > 0 ? Math.max(0, c.target - raised) : 0;
     return {
       phone: c.phone, name: c.name, street_name: c.streetsDisplay.join(' | '), buildings: '',
       total: stats.total, completed: stats.completed, needReturn: stats.needReturn,
-      raised, target: c.target || 0, donePercent,
+      raised, target: c.target || 0, donePercent, remaining,
+      note_before: c.note_before, note_after: c.note_after, collector_status: c.collector_status,
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 
@@ -899,19 +922,19 @@ app.get('/api/admin/collectors', (req, res) => {
 
 app.post('/api/admin/collectors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const { phone, name, street_code, street_name, buildings, target } = req.body;
+  const { phone, name, street_code, street_name, buildings, target, note_before, note_after, collector_status } = req.body;
   const info = db.prepare(
-    'INSERT INTO collectors (phone, name, street_code, street_name, buildings, target) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0);
+    'INSERT INTO collectors (phone, name, street_code, street_name, buildings, target, note_before, note_after, collector_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0, note_before || '', note_after || '', collector_status || '');
   res.json({ id: info.lastInsertRowid });
 });
 
 app.put('/api/admin/collectors/:id', (req, res) => {
   if (!checkPin(req, res)) return;
-  const { phone, name, street_code, street_name, buildings, target } = req.body;
+  const { phone, name, street_code, street_name, buildings, target, note_before, note_after, collector_status } = req.body;
   db.prepare(
-    'UPDATE collectors SET phone = ?, name = ?, street_code = ?, street_name = ?, buildings = ?, target = ? WHERE id = ?'
-  ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0, req.params.id);
+    'UPDATE collectors SET phone = ?, name = ?, street_code = ?, street_name = ?, buildings = ?, target = ?, note_before = ?, note_after = ?, collector_status = ? WHERE id = ?'
+  ).run(normalizePhone(phone), name, street_code, street_name, buildings || '', target || 0, note_before || '', note_after || '', collector_status || '', req.params.id);
   res.json({ ok: true });
 });
 
