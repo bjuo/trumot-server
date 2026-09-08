@@ -1104,12 +1104,21 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target) VALUES (?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
       rows.forEach(r => {
-        if (!r[0]) return;
-        insert.run(normalizePhone(r[0]), r[1], r[2], r[3], r[4] || '', Number(r[5]) || 0);
+        const phone = r[3];   // D: טלפון מתרים
+        if (!phone) return;
+        const name = r[4];              // E: שם הגובה
+        const street_name = r[5];       // F: שם רחוב
+        const street_code = r[0];       // A: קוד רחוב
+        const buildings = r[6] || '';   // G: אחראי על בנינים
+        const target = Number(r[7]) || 0; // H: סכום יעד כללי
+        const noteAfterCombined = [r[18], r[20]].filter(Boolean).join(' | '); // S + U: תשובות אחרי הגבייה
+        const noteBefore = r[19] || '';  // T: תשובה לטלפן תזכורת לגביה
+        const collectorStatus = r[21] || ''; // V: סטטוס טיפול טלפנים
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfterCombined, collectorStatus);
       });
     });
     tx(rows);
