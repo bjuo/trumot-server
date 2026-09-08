@@ -80,6 +80,7 @@
       <input id="d_name" placeholder="שם התורם">
       <button onclick="addDonor()">הוסף</button>
     </div>
+    <div id="donorsCount" style="font-weight:bold;margin-bottom:8px;"></div>
     <table id="donorsTable"><thead><tr><th>רחוב</th><th>בניין</th><th>דירה</th><th>קוד</th><th>שם</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </div>
@@ -144,6 +145,7 @@ async function loadAll() {
 
 async function loadDonors() {
   const donors = await api('/api/admin/donors');
+  document.getElementById('donorsCount').textContent = `סה"כ תורמים במסד: ${donors.length}`;
   document.querySelector('#donorsTable tbody').innerHTML = donors.map(d => renderDonorRow(d)).join('');
 }
 
