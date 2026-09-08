@@ -123,9 +123,14 @@
       <input id="c_street_name" placeholder="שם רחוב">
       <input id="c_buildings" placeholder="בניינים (רשות)">
       <input id="c_target" placeholder="יעד חודשי" type="number">
+      <input id="c_status" placeholder="סיווג סטטוס (רשות)">
       <button onclick="addCollector()">הוסף</button>
     </div>
-    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row-form">
+      <input id="c_note_before" placeholder="תשובה לפני הגבייה (רשות)" style="flex:1;">
+      <input id="c_note_after" placeholder="תשובה אחרי הגבייה (רשות)" style="flex:1;">
+    </div>
+    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -212,7 +217,7 @@ function renderCollectorRow(c) {
   return `
     <tr data-id="${c.id}">
       <td>${esc(c.phone)}</td><td>${esc(c.name)}</td><td>${esc(c.street_name)}</td>
-      <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td>
+      <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td><td>${esc(c.collector_status || '')}</td>
       <td>
         <button onclick="editCollectorRow(${c.id})">ערוך</button>
         <button class="danger" onclick="deleteCollector(${c.id})">מחק</button>
@@ -220,20 +225,29 @@ function renderCollectorRow(c) {
     </tr>`;
 }
 
-function editCollectorRow(id) {
+async function editCollectorRow(id) {
+  const collectors = await api('/api/admin/collectors');
+  const c = collectors.find(x => x.id === id);
+  if (!c) return;
   const row = document.querySelector(`#collectorsTable tr[data-id="${id}"]`);
-  const cells = row.querySelectorAll('td');
-  const vals = [cells[0].textContent, cells[1].textContent, cells[2].textContent, cells[3].textContent, cells[4].textContent];
   row.innerHTML = `
-    <td><input value="${esc(vals[0])}" id="ce_phone_${id}"></td>
-    <td><input value="${esc(vals[1])}" id="ce_name_${id}"></td>
-    <td><input value="${esc(vals[2])}" id="ce_street_${id}"></td>
-    <td><input value="${vals[3] === 'הכל' ? '' : esc(vals[3])}" id="ce_buildings_${id}" placeholder="הכל"></td>
-    <td><input value="${esc(vals[4])}" id="ce_target_${id}" type="number" style="width:80px"></td>
-    <td>
+    <td><input value="${esc(c.phone)}" id="ce_phone_${id}"></td>
+    <td><input value="${esc(c.name)}" id="ce_name_${id}"></td>
+    <td><input value="${esc(c.street_name)}" id="ce_street_${id}"></td>
+    <td><input value="${esc(c.buildings)}" id="ce_buildings_${id}" placeholder="הכל"></td>
+    <td><input value="${c.target || 0}" id="ce_target_${id}" type="number" style="width:80px"></td>
+    <td><input value="${esc(c.collector_status)}" id="ce_status_${id}" style="width:100px"></td>
+    <td colspan="1">
       <button onclick="saveCollectorRow(${id})">שמור</button>
       <button class="secondary" onclick="loadCollectors()">בטל</button>
     </td>`;
+  // שורת המשך קטנה עם ההערות (לא בתוך הטבלה הראשית כדי לא לשבור אותה)
+  const notesRow = document.createElement('tr');
+  notesRow.innerHTML = `<td colspan="7">
+    <input value="${esc(c.note_before)}" id="ce_note_before_${id}" placeholder="תשובה לפני הגבייה" style="width:45%;margin-left:4px;">
+    <input value="${esc(c.note_after)}" id="ce_note_after_${id}" placeholder="תשובה אחרי הגבייה" style="width:45%;">
+  </td>`;
+  row.after(notesRow);
 }
 
 async function saveCollectorRow(id) {
@@ -246,6 +260,9 @@ async function saveCollectorRow(id) {
     street_code: existing ? existing.street_code : '', // לא ניתן לעריכה כאן
     buildings: document.getElementById('ce_buildings_' + id).value.trim(),
     target: Number(document.getElementById('ce_target_' + id).value) || 0,
+    collector_status: document.getElementById('ce_status_' + id).value.trim(),
+    note_before: document.getElementById('ce_note_before_' + id).value.trim(),
+    note_after: document.getElementById('ce_note_after_' + id).value.trim(),
   };
   await api('/api/admin/collectors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   loadCollectors();
@@ -267,9 +284,10 @@ async function addCollector() {
     phone: val('c_phone'), name: val('c_name'),
     street_code: val('c_street_code'), street_name: val('c_street_name'),
     buildings: val('c_buildings'), target: Number(val('c_target')) || 0,
+    collector_status: val('c_status'), note_before: val('c_note_before'), note_after: val('c_note_after'),
   };
   await api('/api/admin/collectors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  ['c_phone','c_name','c_street_code','c_street_name','c_buildings','c_target'].forEach(id => document.getElementById(id).value = '');
+  ['c_phone','c_name','c_street_code','c_street_name','c_buildings','c_target','c_status','c_note_before','c_note_after'].forEach(id => document.getElementById(id).value = '');
   loadCollectors();
 }
 
