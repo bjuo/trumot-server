@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS collectors (
   name TEXT NOT NULL,
   street_code TEXT NOT NULL,
   street_name TEXT,
-  buildings TEXT DEFAULT '',   -- מספרי בניין מופרדים בפסיק, ריק = כל הבניינים ברחוב
+  buildings TEXT DEFAULT '',   -- מספרי בניין מופרדים בנקודה-פסיק (;), ריק = כל הבניינים ברחוב
   target REAL DEFAULT 0
 );
 
