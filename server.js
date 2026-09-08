@@ -1032,7 +1032,8 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
   if (!checkPin(req, res)) return;
   try {
     const { spreadsheetId, gid } = req.body;
-    const url = sheetCsvUrl(spreadsheetId, gid || '0');
+    if (!gid) return res.status(400).json({ error: 'נא למלא את מספר ה-GID של טאב המתרימים' });
+    const url = sheetCsvUrl(spreadsheetId, gid);
     const response = await fetch(url);
     if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
     const csvText = await response.text();
