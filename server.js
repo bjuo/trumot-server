@@ -630,7 +630,7 @@ function collectorsByPhone() {
     if (!byPhone[phone]) byPhone[phone] = { name: r.name, assignments: [], target: 0 };
     const streetCode = String(r.street_code || '').trim();
     const buildingsRaw = String(r.buildings || '').trim();
-    const buildings = buildingsRaw.split(';').map(b => b.trim()).filter(Boolean);
+    const buildings = buildingsRaw.split(/[,;]/).map(b => b.trim()).filter(Boolean);
     if (streetCode) {
       if (buildings.length === 0) byPhone[phone].assignments.push({ streetCode, building: null });
       else buildings.forEach(b => byPhone[phone].assignments.push({ streetCode, building: b }));
@@ -793,7 +793,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     if (!byPhone[phone]) byPhone[phone] = { name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [] };
     const streetCode = String(c.street_code || '').trim();
     const buildingsRaw = String(c.buildings || '').trim();
-    const buildings = buildingsRaw.split(';').map(b => b.trim()).filter(Boolean);
+    const buildings = buildingsRaw.split(/[,;]/).map(b => b.trim()).filter(Boolean);
     if (streetCode) {
       if (buildings.length === 0) {
         byPhone[phone].assignments.push({ streetCode, building: null });
@@ -978,28 +978,28 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND apartment = ?');
-    const updateBasic = db.prepare('UPDATE donors SET street_name = ?, donor_code = ?, name = ? WHERE id = ?');
-    const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, donor_code = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
+    const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
+    const updateBasic = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ? WHERE id = ?');
+    const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
     const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0;
     const tx = db.transaction(rows => {
       rows.forEach(r => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw] = r;
-        if (!street_code || !building || !apartment) return; // שורה חסרה - מדלגים
+        if (!street_code || !building || !donor_code) return; // שורה חסרה מידע מזהה - מדלגים (מספר דירה לא נבדק - לא רלוונטי לזיהוי)
         const sheetAmount = Number(amountRaw) || 0;
-        const existing = findExisting.get(street_code, building, apartment);
+        const existing = findExisting.get(street_code, building, donor_code);
 
         if (existing) {
           const existingTotal = (existing.amount || 0) + (existing.manual || 0);
           if (sheetAmount > 0 && existingTotal === 0) {
             // אין עדיין סכום אמיתי אצלנו, אבל בגיליון יש - מאמצים את הסכום ומנקים סטטוס ישן
-            updateWithAmount.run(street_name, donor_code, name, sheetAmount, existing.id);
+            updateWithAmount.run(street_name, apartment, name, sheetAmount, existing.id);
             amountsAdopted++;
           } else {
             // כבר יש סכום אמיתי אצלנו (מהטלפון) - לא נוגעים בו, מעדכנים רק פרטים בסיסיים
-            updateBasic.run(street_name, donor_code, name, existing.id);
+            updateBasic.run(street_name, apartment, name, existing.id);
           }
           updated++;
         } else {
