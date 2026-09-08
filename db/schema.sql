@@ -25,8 +25,11 @@ CREATE TABLE IF NOT EXISTS collectors (
   name TEXT NOT NULL,
   street_code TEXT NOT NULL,
   street_name TEXT,
-  buildings TEXT DEFAULT '',   -- מספרי בניין מופרדים בנקודה-פסיק (;), ריק = כל הבניינים ברחוב
-  target REAL DEFAULT 0
+  buildings TEXT DEFAULT '',   -- מספרי בניין מופרדים בנקודה-פסיק (;) או פסיק, ריק = כל הבניינים ברחוב
+  target REAL DEFAULT 0,
+  note_before TEXT DEFAULT '',   -- תשובה לפני הגבייה
+  note_after TEXT DEFAULT '',    -- תשובה אחרי הגבייה
+  collector_status TEXT DEFAULT ''  -- סיווג סטטוס של המתרים עצמו (למשל "פעיל", "לא פנה אליו")
 );
 
 CREATE INDEX IF NOT EXISTS idx_collectors_phone ON collectors(phone);
