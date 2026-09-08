@@ -983,11 +983,16 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
     const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
-    let updated = 0, created = 0, amountsAdopted = 0;
+    let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
+    console.log(`[sync-donors] מתחיל, סה"כ שורות מהגיליון: ${rows.length}`);
     const tx = db.transaction(rows => {
-      rows.forEach(r => {
+      rows.forEach((r, idx) => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw] = r;
-        if (!street_code || !building || !donor_code) return; // שורה חסרה מידע מזהה - מדלגים (מספר דירה לא נבדק - לא רלוונטי לזיהוי)
+        if (!street_code || !building || !donor_code) {
+          skipped++;
+          console.log(`[sync-donors] שורה ${idx} דולגה - חסר מידע. תוכן: ${JSON.stringify(r)}`);
+          return;
+        }
         const sheetAmount = Number(amountRaw) || 0;
         const existing = findExisting.get(street_code, building, donor_code);
 
@@ -1009,6 +1014,7 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
       });
     });
     tx(rows);
+    console.log(`[sync-donors] סיום. עודכנו: ${updated}, נוצרו: ${created}, דולגו: ${skipped}`);
     res.json({ message: `סונכרן: ${updated} תורמים עודכנו (מתוכם ${amountsAdopted} אימצו סכום מהגיליון), ${created} תורמים חדשים נוספו.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
