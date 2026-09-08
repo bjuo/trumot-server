@@ -978,27 +978,38 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const findExisting = db.prepare('SELECT id FROM donors WHERE street_code = ? AND building = ? AND apartment = ?');
+    const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND apartment = ?');
     const updateBasic = db.prepare('UPDATE donors SET street_name = ?, donor_code = ?, name = ? WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name) VALUES (?, ?, ?, ?, ?, ?)');
+    const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, donor_code = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
-    let updated = 0, created = 0;
+    let updated = 0, created = 0, amountsAdopted = 0;
     const tx = db.transaction(rows => {
       rows.forEach(r => {
-        const [street_code, street_name, building, apartment, donor_code, name] = r;
+        const [street_code, street_name, building, apartment, donor_code, name, amountRaw] = r;
         if (!street_code || !building || !apartment) return; // שורה חסרה - מדלגים
+        const sheetAmount = Number(amountRaw) || 0;
         const existing = findExisting.get(street_code, building, apartment);
+
         if (existing) {
-          updateBasic.run(street_name, donor_code, name, existing.id);
+          const existingTotal = (existing.amount || 0) + (existing.manual || 0);
+          if (sheetAmount > 0 && existingTotal === 0) {
+            // אין עדיין סכום אמיתי אצלנו, אבל בגיליון יש - מאמצים את הסכום ומנקים סטטוס ישן
+            updateWithAmount.run(street_name, donor_code, name, sheetAmount, existing.id);
+            amountsAdopted++;
+          } else {
+            // כבר יש סכום אמיתי אצלנו (מהטלפון) - לא נוגעים בו, מעדכנים רק פרטים בסיסיים
+            updateBasic.run(street_name, donor_code, name, existing.id);
+          }
           updated++;
         } else {
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name);
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount);
           created++;
         }
       });
     });
     tx(rows);
-    res.json({ message: `סונכרן: ${updated} תורמים עודכנו, ${created} תורמים חדשים נוספו. הסכום והסטטוס הקיימים לא נפגעו.` });
+    res.json({ message: `סונכרן: ${updated} תורמים עודכנו (מתוכם ${amountsAdopted} אימצו סכום מהגיליון), ${created} תורמים חדשים נוספו.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
