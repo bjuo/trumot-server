@@ -75,6 +75,7 @@
 <div class="print-title" id="printTitle"></div>
 <div class="summary-row" id="summary"></div>
 <div class="filters" id="filters"></div>
+<div class="filters" id="statusFilters"></div>
 <button class="export-btn" onclick="exportPdf()" style="margin-bottom:16px;background:#0f6e56;">ייצוא ל-PDF (לפי הסינון הנוכחי)</button>
 <div class="grid" id="grid"></div>
 
@@ -83,6 +84,7 @@ let auto = null;
 let countdown = 15;
 let lastData = [];
 let currentFilter = 'all';
+let currentStatusFilter = 'all';
 
 async function load() {
   const pin = document.getElementById('pin').value.trim();
@@ -108,10 +110,18 @@ function setFilter(f) {
 }
 
 function matchesFilter(c) {
-  if (currentFilter === 'done') return c.donePercent === 100;
-  if (currentFilter === 'notstarted') return c.donePercent === 0;
-  if (currentFilter === 'inprogress') return c.donePercent > 0 && c.donePercent < 100;
+  let ok = true;
+  if (currentFilter === 'done') ok = c.donePercent === 100;
+  else if (currentFilter === 'notstarted') ok = c.donePercent === 0;
+  else if (currentFilter === 'inprogress') ok = c.donePercent > 0 && c.donePercent < 100;
+  if (!ok) return false;
+  if (currentStatusFilter !== 'all' && c.collector_status !== currentStatusFilter) return false;
   return true;
+}
+
+function setStatusFilter(s) {
+  currentStatusFilter = s;
+  render();
 }
 
 function renderFilters() {
@@ -130,6 +140,17 @@ function renderFilters() {
   document.getElementById('filters').innerHTML = tabs.map(([key, label]) =>
     `<button class="filter-btn${currentFilter === key ? ' active' : ''}" onclick="setFilter('${key}')">${label} <span class="count">(${counts[key]})</span></button>`
   ).join('');
+
+  // סינון שני - לפי סיווג המתרים עצמו (שדה חופשי)
+  const statuses = [...new Set(lastData.map(c => c.collector_status).filter(Boolean))];
+  if (statuses.length > 0) {
+    const statusTabs = ['all', ...statuses];
+    document.getElementById('statusFilters').innerHTML = statusTabs.map(s =>
+      `<button class="filter-btn${currentStatusFilter === s ? ' active' : ''}" onclick="setStatusFilter('${esc(s)}')">${s === 'all' ? 'כל הסיווגים' : esc(s)}</button>`
+    ).join('');
+  } else {
+    document.getElementById('statusFilters').innerHTML = '';
+  }
 }
 
 function startAutoRefresh() {
@@ -165,16 +186,24 @@ function render() {
     const pct = c.donePercent;
     const incomplete = pct < 100;
     const progressHtml = `<div class="progress-wrap"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div>`;
+    const statusBadge = c.collector_status ? `<span style="background:#eee;border-radius:8px;padding:2px 8px;font-size:12px;color:#555;">${esc(c.collector_status)}</span>` : '';
+    const notesHtml = (c.note_before || c.note_after) ? `
+        <div style="margin-top:8px;font-size:12px;color:#777;border-top:1px solid #eee;padding-top:6px;">
+          ${c.note_before ? 'לפני: ' + esc(c.note_before) + '<br>' : ''}
+          ${c.note_after ? 'אחרי: ' + esc(c.note_after) : ''}
+        </div>` : '';
     return `
       <div class="card${incomplete ? ' incomplete' : ''}">
-        <div class="name">${esc(c.name)}</div>
+        <div class="name">${esc(c.name)} ${statusBadge}</div>
         <div class="phone">${esc(c.phone)}</div>
         <div class="street">${esc(c.street_name || '')}</div>
         <div class="stat-line"><span>סך תורמים</span><span>${c.total}</span></div>
         <div class="stat-line"><span>השלימו</span><span>${c.completed}</span></div>
         <div class="stat-line"><span>צריך לחזור</span><span>${c.needReturn}</span></div>
         <div class="stat-line"><span>נאסף</span><span>${c.raised.toLocaleString()} ${c.target ? '/ ' + c.target.toLocaleString() : ''} ש"ח</span></div>
+        ${c.target > 0 ? `<div class="stat-line"><span>נותר להשלמת יעד</span><span>${c.remaining.toLocaleString()} ש"ח</span></div>` : ''}
         ${progressHtml}
+        ${notesHtml}
       </div>`;
   }).join('');
 
