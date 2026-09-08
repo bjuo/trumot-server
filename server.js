@@ -980,15 +980,16 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
 
     const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
     const updateBasic = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ? WHERE id = ?');
+    const updateBasicWithStatus = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, status = ? WHERE id = ?');
     const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
     const skippedNames = [];
     console.log(`[sync-donors] מתחיל, סה"כ שורות מהגיליון: ${rows.length}`);
     const tx = db.transaction(rows => {
       rows.forEach((r, idx) => {
-        const [street_code, street_name, building, apartment, donor_code, name, amountRaw] = r;
+        const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, statusRaw] = r;
         if (!street_code || !building || !donor_code) {
           skipped++;
           skippedNames.push(`${name || '(ללא שם)'} - ${street_name || ''} בניין ${building || '?'}`);
@@ -996,6 +997,7 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
           return;
         }
         const sheetAmount = Number(amountRaw) || 0;
+        const sheetStatus = statusRaw || '';
         const existing = findExisting.get(street_code, building, donor_code);
 
         if (existing) {
@@ -1004,13 +1006,17 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
             // אין עדיין סכום אמיתי אצלנו, אבל בגיליון יש - מאמצים את הסכום ומנקים סטטוס ישן
             updateWithAmount.run(street_name, apartment, name, sheetAmount, existing.id);
             amountsAdopted++;
+          } else if (existingTotal === 0) {
+            // אין סכום אמיתי (לא אצלנו ולא בגיליון) - מייבאים גם סטטוס מהגיליון (למשל "לא פתחו")
+            updateBasicWithStatus.run(street_name, apartment, name, sheetStatus, existing.id);
           } else {
             // כבר יש סכום אמיתי אצלנו (מהטלפון) - לא נוגעים בו, מעדכנים רק פרטים בסיסיים
             updateBasic.run(street_name, apartment, name, existing.id);
           }
           updated++;
         } else {
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount);
+          // תורם חדש: אם יש סכום מהגיליון, אין סטטוס (הסכום עצמו מייתר אותו); אחרת מייבאים את הסטטוס
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetAmount > 0 ? '' : sheetStatus);
           created++;
         }
       });
