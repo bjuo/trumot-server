@@ -346,6 +346,7 @@ async function syncCollectorsFromSheet() {
   const spreadsheetId = val('sheet_id_c');
   const gid = val('sheet_collectors_gid');
   if (!spreadsheetId) { document.getElementById('status').textContent = 'נא למלא מזהה גיליון'; return; }
+  if (!gid) { document.getElementById('status').textContent = 'נא למלא את מספר ה-GID של טאב המתרימים'; return; }
   document.getElementById('status').textContent = 'מסנכרן...';
   try {
     const r = await api('/api/admin/sync-collectors-from-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spreadsheetId, gid }) });
