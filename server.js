@@ -964,15 +964,15 @@ app.post('/api/admin/import-collectors-csv', express.text({ type: '*/*', limit: 
 
 // ----- סנכרון חי מגוגל שיטס (בלי הורדת CSV ידנית) -----
 // דורש שהגיליון משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות.
-function sheetCsvUrl(spreadsheetId, sheetName) {
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+function sheetCsvUrl(spreadsheetId, gid) {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${encodeURIComponent(gid)}`;
 }
 
 app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
   if (!checkPin(req, res)) return;
   try {
-    const { spreadsheetId, sheetName } = req.body;
-    const url = sheetCsvUrl(spreadsheetId, sheetName || 'תורמים');
+    const { spreadsheetId, gid } = req.body;
+    const url = sheetCsvUrl(spreadsheetId, gid || '0');
     const response = await fetch(url);
     if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
     const csvText = await response.text();
@@ -984,12 +984,14 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
+    const skippedNames = [];
     console.log(`[sync-donors] מתחיל, סה"כ שורות מהגיליון: ${rows.length}`);
     const tx = db.transaction(rows => {
       rows.forEach((r, idx) => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw] = r;
         if (!street_code || !building || !donor_code) {
           skipped++;
+          skippedNames.push(`${name || '(ללא שם)'} - ${street_name || ''} בניין ${building || '?'}`);
           console.log(`[sync-donors] שורה ${idx} דולגה - חסר מידע. תוכן: ${JSON.stringify(r)}`);
           return;
         }
@@ -1015,7 +1017,12 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     });
     tx(rows);
     console.log(`[sync-donors] סיום. עודכנו: ${updated}, נוצרו: ${created}, דולגו: ${skipped}`);
-    res.json({ message: `סונכרן: ${updated} תורמים עודכנו (מתוכם ${amountsAdopted} אימצו סכום מהגיליון), ${created} תורמים חדשים נוספו.` });
+
+    let message = `סונכרן: ${updated} תורמים עודכנו (מתוכם ${amountsAdopted} אימצו סכום מהגיליון), ${created} תורמים חדשים נוספו.`;
+    if (skipped > 0) {
+      message += ` ${skipped} שורות דולגו כי חסר להן קוד רחוב/בניין/קוד תורם: ${skippedNames.slice(0, 20).join(' | ')}${skipped > 20 ? ' ...ועוד' : ''}`;
+    }
+    res.json({ message });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1024,8 +1031,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
 app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
   if (!checkPin(req, res)) return;
   try {
-    const { spreadsheetId, sheetName } = req.body;
-    const url = sheetCsvUrl(spreadsheetId, sheetName || 'מתרימים');
+    const { spreadsheetId, gid } = req.body;
+    const url = sheetCsvUrl(spreadsheetId, gid || '0');
     const response = await fetch(url);
     if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
     const csvText = await response.text();
