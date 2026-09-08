@@ -783,6 +783,42 @@ app.get('/api/admin/dashboard', (req, res) => {
   res.json(getDashboardData());
 });
 
+app.get('/api/admin/find-overlaps', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const cData = db.prepare('SELECT * FROM collectors').all();
+  const byPhone = {};
+  cData.forEach(c => {
+    const phone = normalizePhone(c.phone);
+    if (!byPhone[phone]) byPhone[phone] = { name: c.name, assignments: [] };
+    const streetCode = String(c.street_code || '').trim();
+    const buildingsRaw = String(c.buildings || '').trim();
+    const buildings = buildingsRaw.split(/[,;]/).map(b => b.trim()).filter(Boolean);
+    if (streetCode) {
+      if (buildings.length === 0) byPhone[phone].assignments.push({ streetCode, building: null });
+      else buildings.forEach(b => byPhone[phone].assignments.push({ streetCode, building: b }));
+    }
+  });
+
+  // כל הצמדים (רחוב+בניין) שקיימים בפועל בנתוני התורמים
+  const realPairs = {};
+  getAllDonors().forEach(d => {
+    const key = String(d.street_code) + '|' + String(d.building);
+    realPairs[key] = { streetCode: String(d.street_code), streetName: d.street_name, building: d.building };
+  });
+
+  const overlaps = [];
+  Object.values(realPairs).forEach(pair => {
+    const matchingCollectors = Object.entries(byPhone)
+      .filter(([phone, c]) => matchesAssignment(c.assignments, pair.streetCode, pair.building))
+      .map(([phone, c]) => `${c.name} (${phone})`);
+    if (matchingCollectors.length > 1) {
+      overlaps.push({ street: pair.streetName, building: pair.building, collectors: matchingCollectors });
+    }
+  });
+
+  res.json(overlaps);
+});
+
 app.get('/api/admin/telefonim-view', (req, res) => {
   if (!checkPin(req, res)) return;
   const cData = db.prepare('SELECT * FROM collectors ORDER BY name').all();
