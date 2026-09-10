@@ -878,7 +878,33 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 
-  res.json(result);
+  // סיכום אמיתי - ישירות מכל התורמים, בלי תלות בחפיפות בין מתרימים (זוגות וכו')
+  let globalTotal = 0, globalCompleted = 0, globalNeedReturn = 0, globalNotHandled = 0, globalRaised = 0, globalTarget = 0;
+  const allDonors = getAllDonors();
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const allDonorIds = allDonors.map(d => d.id);
+  allDonors.forEach(d => {
+    globalTotal++;
+    if (hasAmountSet(d)) globalCompleted++;
+    else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') globalNeedReturn++;
+    else if (d.status !== 'פתחו ולא תרמו') globalNotHandled++;
+    globalRaised += (d.amount || 0) + (d.manual || 0);
+  });
+  if (allDonorIds.length > 0) {
+    const placeholders = allDonorIds.map(() => '?').join(',');
+    const archiveRows = db.prepare(`SELECT amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND closed_at >= ?`).all(...allDonorIds, startOfMonth);
+    archiveRows.forEach(r => { globalRaised += (r.amount || 0) + (r.manual || 0); });
+  }
+  globalTarget = Object.values(byPhone).reduce((s, c) => s + (c.target || 0), 0); // היעדים לא חופפים בין מתרימים בד"כ - סכימה תקינה
+
+  const summary = {
+    totalDonors: globalTotal, totalCompleted: globalCompleted, totalNeedReturn: globalNeedReturn,
+    totalNotHandled: globalNotHandled, totalRaised: Math.round(globalRaised), totalTarget: globalTarget,
+    totalCollectors: Object.keys(byPhone).length,
+  };
+
+  res.json({ collectors: result, summary });
 });
 
 app.get('/api/admin/donors', (req, res) => {
