@@ -65,6 +65,7 @@
       <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
       <button onclick="importDonorsCsv()">ייבא תורמים</button>
       <button class="danger" onclick="clearDonors()">מחק את כל התורמים</button>
+      <button class="secondary" onclick="exportExcel('donors')">ייצוא לאקסל</button>
     </div>
   </div>
 
@@ -103,6 +104,7 @@
       <label>קובץ מתרימים: <input type="file" id="collectorsCsvFile" accept=".csv"></label>
       <button onclick="importCollectorsCsv()">ייבא מתרימים</button>
       <button class="danger" onclick="clearCollectors()">מחק את כל המתרימים</button>
+      <button class="secondary" onclick="exportExcel('collectors')">ייצוא לאקסל</button>
     </div>
   </div>
 
@@ -412,6 +414,12 @@ async function findOverlaps() {
   } catch (e) {
     resultEl.textContent = 'שגיאה: ' + e.message;
   }
+}
+
+function exportExcel(kind) {
+  const p = pin();
+  if (!p) { document.getElementById('status').textContent = 'נא למלא קוד גישה'; return; }
+  window.location.href = `/api/admin/export-excel/${kind}?pin=${encodeURIComponent(p)}`;
 }
 
 function switchTab(tab) {
