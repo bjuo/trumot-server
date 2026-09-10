@@ -83,6 +83,7 @@
 let auto = null;
 let countdown = 15;
 let lastData = [];
+let lastSummary = null;
 let currentFilter = 'all';
 let currentStatusFilter = 'all';
 
@@ -96,7 +97,8 @@ async function load() {
     const res = await fetch('/api/admin/telefonim-view?pin=' + encodeURIComponent(pin));
     if (!res.ok) { const e = await res.json().catch(() => ({error:'שגיאה'})); errEl.textContent = e.error; return; }
     const data = await res.json();
-    lastData = data;
+    lastData = data.collectors;
+    lastSummary = data.summary;
     render();
     document.getElementById('lastUpdate').textContent = 'עודכן לאחרונה: ' + new Date().toLocaleTimeString('he-IL');
   } catch (err) {
@@ -167,11 +169,11 @@ function loadAndStart() { load(); startAutoRefresh(); }
 
 function render() {
   const data = lastData;
-  const totalRaised = data.reduce((s, c) => s + c.raised, 0);
-  const totalTarget = data.reduce((s, c) => s + (c.target || 0), 0);
-  const totalDonors = data.reduce((s, c) => s + c.total, 0);
-  const totalCompleted = data.reduce((s, c) => s + c.completed, 0);
-  const totalNotHandled = data.reduce((s, c) => s + (c.notHandled || 0), 0);
+  const totalRaised = lastSummary ? lastSummary.totalRaised : data.reduce((s, c) => s + c.raised, 0);
+  const totalTarget = lastSummary ? lastSummary.totalTarget : data.reduce((s, c) => s + (c.target || 0), 0);
+  const totalDonors = lastSummary ? lastSummary.totalDonors : data.reduce((s, c) => s + c.total, 0);
+  const totalCompleted = lastSummary ? lastSummary.totalCompleted : data.reduce((s, c) => s + c.completed, 0);
+  const totalNotHandled = lastSummary ? lastSummary.totalNotHandled : data.reduce((s, c) => s + (c.notHandled || 0), 0);
 
   document.getElementById('summary').innerHTML = `
     <div class="summary-card"><div class="num">${totalRaised.toLocaleString()}</div><div class="label">סה"כ נאסף (ש"ח)</div></div>
