@@ -206,7 +206,7 @@ function render() {
         <div class="stat-line"><span>צריך לחזור</span><span>${c.needReturn}</span></div>
         <div class="stat-line"><span>לא טופלו כלל</span><span>${c.notHandled || 0}</span></div>
         <div class="stat-line"><span>נאסף</span><span>${c.raised.toLocaleString()} ${c.target ? '/ ' + c.target.toLocaleString() : ''} ש"ח</span></div>
-        ${c.target > 0 ? `<div class="stat-line"><span>נותר להשלמת יעד</span><span>${c.remaining.toLocaleString()} ש"ח</span></div>` : ''}
+        ${c.target > 0 ? `<div class="stat-line"><span>נותר להשלמת גביה</span><span>${c.remaining.toLocaleString()} ש"ח</span></div>` : ''}
         ${progressHtml}
         ${notesHtml}
       </div>`;
