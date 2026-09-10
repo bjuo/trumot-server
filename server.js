@@ -712,15 +712,16 @@ function getDistinctBuildingsForAssignments(assignments) {
 }
 
 function donorStatsFor(assignments) {
-  let total = 0, completed = 0, needReturn = 0, doneNoReturn = 0;
+  let total = 0, completed = 0, needReturn = 0, doneNoReturn = 0, notHandled = 0;
   getAllDonors().forEach(d => {
     if (!matchesAssignment(assignments, String(d.street_code), d.building)) return;
     total++;
     if (hasAmountSet(d)) completed++;
     else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') needReturn++;
     else if (d.status === 'פתחו ולא תרמו') doneNoReturn++;
+    else notHandled++; // אין סכום ואין סטטוס בכלל - לא טופל עדיין
   });
-  return { total, completed, needReturn, doneNoReturn };
+  return { total, completed, needReturn, doneNoReturn, notHandled };
 }
 
 function monthlyTotalForCollector(assignments) {
@@ -871,7 +872,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     const remaining = c.target > 0 ? Math.max(0, c.target - raised) : 0;
     return {
       phone: c.phone, name: c.name, street_name: c.streetsDisplay.join(' | '), buildings: '',
-      total: stats.total, completed: stats.completed, needReturn: stats.needReturn,
+      total: stats.total, completed: stats.completed, needReturn: stats.needReturn, notHandled: stats.notHandled,
       raised, target: c.target || 0, donePercent, remaining,
       note_before: c.note_before, note_after: c.note_after, collector_status: c.collector_status,
     };
@@ -1154,6 +1155,35 @@ function readBuild(promptSegment, baseName, opts, state) {
 // סנכרון תקופתי לטאב "טלפנים" בגוגל שיטס (עמודות K-P בלבד)
 // ============================================================================
 const { google } = require('googleapis');
+const XLSX = require('xlsx');
+
+app.get('/api/admin/export-excel/donors', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const donors = db.prepare('SELECT street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
+  const headers = ['קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון'];
+  const rows = donors.map(d => [d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at]);
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'תורמים');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', 'attachment; filename="torvim.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+});
+
+app.get('/api/admin/export-excel/collectors', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const collectors = db.prepare('SELECT phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status FROM collectors ORDER BY name').all();
+  const headers = ['טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס'];
+  const rows = collectors.map(c => [c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status]);
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'מתרימים');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', 'attachment; filename="metrimim.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buffer);
+});
 
 const TELEFONIM_SPREADSHEET_ID = process.env.TELEFONIM_SPREADSHEET_ID || '';
 const TELEFONIM_SHEET_NAME = process.env.TELEFONIM_SHEET_NAME || 'טלפנים';
