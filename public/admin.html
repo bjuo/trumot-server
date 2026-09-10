@@ -55,6 +55,7 @@
       <input id="sheet_id" placeholder="מזהה הגיליון (מה-URL, בין /d/ ל-/edit)" style="flex:2;">
       <input id="sheet_donors_gid" placeholder="GID של הטאב (0 = הטאב הראשון)" value="0">
       <button onclick="syncDonorsFromSheet()">סנכרן תורמים</button>
+      <button class="danger" onclick="importDonorsFullFromSheet()">ייבוא מלא חד-פעמי (כולל סכומים וסטטוסים)</button>
     </div>
   </div>
 
@@ -364,6 +365,21 @@ async function syncDonorsFromSheet() {
   document.getElementById('status').textContent = 'מסנכרן...';
   try {
     const r = await api('/api/admin/sync-donors-from-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spreadsheetId, gid }) });
+    document.getElementById('status').textContent = r.message;
+    loadDonors();
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function importDonorsFullFromSheet() {
+  const spreadsheetId = val('sheet_id');
+  const gid = val('sheet_donors_gid') || '0';
+  if (!spreadsheetId) { document.getElementById('status').textContent = 'נא למלא מזהה גיליון'; return; }
+  if (!confirm('פעולה זו תמחק את כל התורמים הקיימים ותייבא הכל מחדש מהגיליון, כולל סכומים וסטטוסים (גם אם נאספו דרך הטלפון). להמשיך?')) return;
+  document.getElementById('status').textContent = 'מייבא...';
+  try {
+    const r = await api('/api/admin/import-donors-full-from-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spreadsheetId, gid }) });
     document.getElementById('status').textContent = r.message;
     loadDonors();
   } catch (e) {
