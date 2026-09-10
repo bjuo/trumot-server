@@ -171,11 +171,13 @@ function render() {
   const totalTarget = data.reduce((s, c) => s + (c.target || 0), 0);
   const totalDonors = data.reduce((s, c) => s + c.total, 0);
   const totalCompleted = data.reduce((s, c) => s + c.completed, 0);
+  const totalNotHandled = data.reduce((s, c) => s + (c.notHandled || 0), 0);
 
   document.getElementById('summary').innerHTML = `
     <div class="summary-card"><div class="num">${totalRaised.toLocaleString()}</div><div class="label">סה"כ נאסף (ש"ח)</div></div>
     <div class="summary-card"><div class="num">${totalTarget.toLocaleString()}</div><div class="label">סה"כ יעד (ש"ח)</div></div>
     <div class="summary-card"><div class="num">${totalCompleted} / ${totalDonors}</div><div class="label">תורמים שהושלמו</div></div>
+    <div class="summary-card"><div class="num">${totalNotHandled}</div><div class="label">תורמים שלא טופלו כלל</div></div>
     <div class="summary-card"><div class="num">${data.length}</div><div class="label">מתרימים פעילים</div></div>
   `;
 
@@ -200,6 +202,7 @@ function render() {
         <div class="stat-line"><span>סך תורמים</span><span>${c.total}</span></div>
         <div class="stat-line"><span>השלימו</span><span>${c.completed}</span></div>
         <div class="stat-line"><span>צריך לחזור</span><span>${c.needReturn}</span></div>
+        <div class="stat-line"><span>לא טופלו כלל</span><span>${c.notHandled || 0}</span></div>
         <div class="stat-line"><span>נאסף</span><span>${c.raised.toLocaleString()} ${c.target ? '/ ' + c.target.toLocaleString() : ''} ש"ח</span></div>
         ${c.target > 0 ? `<div class="stat-line"><span>נותר להשלמת יעד</span><span>${c.remaining.toLocaleString()} ש"ח</span></div>` : ''}
         ${progressHtml}
