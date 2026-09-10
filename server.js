@@ -1028,6 +1028,38 @@ function sheetCsvUrl(spreadsheetId, gid) {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${encodeURIComponent(gid)}`;
 }
 
+// ----- ייבוא מלא חד-פעמי מהגיליון (כולל סכומים וסטטוסים - מוחק ומחליף הכל) -----
+app.post('/api/admin/import-donors-full-from-sheet', async (req, res) => {
+  if (!checkPin(req, res)) return;
+  try {
+    const { spreadsheetId, gid } = req.body;
+    if (!gid) return res.status(400).json({ error: 'נא למלא את מספר ה-GID של טאב התורמים' });
+    const url = sheetCsvUrl(spreadsheetId, gid);
+    const response = await fetch(url);
+    if (!response.ok) return res.status(500).json({ error: 'לא ניתן לגשת לגיליון - וודא שהוא משותף כ"כל מי שיש לו קישור - צפייה"' });
+    const csvText = await response.text();
+    const rows = readCsvText(csvText);
+
+    const insert = db.prepare(
+      'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    let imported = 0, skipped = 0;
+    const tx = db.transaction(rows => {
+      db.prepare('DELETE FROM donors').run();
+      rows.forEach(r => {
+        const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, status, updated_at] = r;
+        if (!street_code || !building || !donor_code) { skipped++; return; }
+        insert.run(street_code, street_name, building, apartment, donor_code, name, Number(amountRaw) || 0, Number(manualRaw) || 0, status || '', updated_at || null);
+        imported++;
+      });
+    });
+    tx(rows);
+    res.json({ message: `ייבוא מלא הושלם: ${imported} תורמים יובאו (כולל סכומים וסטטוסים), ${skipped} שורות דולגו (חסר קוד רחוב/בניין/קוד תורם).` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
   if (!checkPin(req, res)) return;
   try {
