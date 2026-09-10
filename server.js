@@ -711,9 +711,9 @@ function getDistinctBuildingsForAssignments(assignments) {
   return result;
 }
 
-function donorStatsFor(assignments) {
+function donorStatsFor(assignments, allDonors) {
   let total = 0, completed = 0, needReturn = 0, doneNoReturn = 0, notHandled = 0;
-  getAllDonors().forEach(d => {
+  (allDonors || getAllDonors()).forEach(d => {
     if (!matchesAssignment(assignments, String(d.street_code), d.building)) return;
     total++;
     if (hasAmountSet(d)) completed++;
@@ -724,19 +724,37 @@ function donorStatsFor(assignments) {
   return { total, completed, needReturn, doneNoReturn, notHandled };
 }
 
-function monthlyTotalForCollector(assignments) {
+// שולף את כל שורות הארכיון של החודש הנוכחי פעם אחת, ממופה לפי donor_id -
+// חוסך שאילתה נפרדת לכל מתרים כשמחשבים סטטיסטיקות לכמה מתרימים ברצף
+function getArchiveThisMonthByDonor() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const donors = getAllDonors().filter(d => matchesAssignment(assignments, String(d.street_code), d.building));
+  const rows = db.prepare('SELECT donor_id, amount, manual FROM campaign_archive WHERE closed_at >= ?').all(startOfMonth);
+  const map = new Map();
+  rows.forEach(r => {
+    const cur = map.get(r.donor_id) || 0;
+    map.set(r.donor_id, cur + (r.amount || 0) + (r.manual || 0));
+  });
+  return map;
+}
+
+function monthlyTotalForCollector(assignments, allDonors, archiveByDonor) {
+  const donors = (allDonors || getAllDonors()).filter(d => matchesAssignment(assignments, String(d.street_code), d.building));
   let total = donors.reduce((s, d) => s + (d.amount || 0) + (d.manual || 0), 0);
 
-  const ids = donors.map(d => d.id);
-  if (ids.length > 0) {
-    const placeholders = ids.map(() => '?').join(',');
-    const archiveRows = db.prepare(
-      `SELECT amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND closed_at >= ?`
-    ).all(...ids, startOfMonth);
-    total += archiveRows.reduce((s, r) => s + (r.amount || 0) + (r.manual || 0), 0);
+  if (archiveByDonor) {
+    donors.forEach(d => { total += archiveByDonor.get(d.id) || 0; });
+  } else {
+    const ids = donors.map(d => d.id);
+    if (ids.length > 0) {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const placeholders = ids.map(() => '?').join(',');
+      const archiveRows = db.prepare(
+        `SELECT amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND closed_at >= ?`
+      ).all(...ids, startOfMonth);
+      total += archiveRows.reduce((s, r) => s + (r.amount || 0) + (r.manual || 0), 0);
+    }
   }
   return total;
 }
@@ -767,9 +785,11 @@ function closeCurrentCampaign() {
 
 function getDashboardData() {
   const byPhone = collectorsByPhone();
+  const allDonors = getAllDonors();
+  const archiveByDonor = getArchiveThisMonthByDonor();
   return Object.values(byPhone).map(c => {
-    const stats = donorStatsFor(c.assignments);
-    const raised = Math.round(monthlyTotalForCollector(c.assignments));
+    const stats = donorStatsFor(c.assignments, allDonors);
+    const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
     return { name: c.name, total: stats.total, completed: stats.completed, needReturn: stats.needReturn, raised, target: c.target || 0 };
   }).sort((a, b) => b.raised - a.raised);
 }
@@ -864,9 +884,12 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     if (c.collector_status) byPhone[phone].collector_status = c.collector_status;
   });
 
+  const allDonors = getAllDonors();
+  const archiveByDonor = getArchiveThisMonthByDonor();
+
   const result = Object.values(byPhone).map(c => {
-    const stats = donorStatsFor(c.assignments);
-    const raised = Math.round(monthlyTotalForCollector(c.assignments));
+    const stats = donorStatsFor(c.assignments, allDonors);
+    const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
     const doneCount = stats.completed + stats.doneNoReturn;
     const donePercent = stats.total > 0 ? Math.round((doneCount / stats.total) * 100) : 100;
     const remaining = c.target > 0 ? Math.max(0, c.target - raised) : 0;
@@ -880,23 +903,14 @@ app.get('/api/admin/telefonim-view', (req, res) => {
 
   // סיכום אמיתי - ישירות מכל התורמים, בלי תלות בחפיפות בין מתרימים (זוגות וכו')
   let globalTotal = 0, globalCompleted = 0, globalNeedReturn = 0, globalNotHandled = 0, globalRaised = 0, globalTarget = 0;
-  const allDonors = getAllDonors();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const allDonorIds = allDonors.map(d => d.id);
   allDonors.forEach(d => {
     globalTotal++;
     if (hasAmountSet(d)) globalCompleted++;
     else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') globalNeedReturn++;
     else if (d.status !== 'פתחו ולא תרמו') globalNotHandled++;
-    globalRaised += (d.amount || 0) + (d.manual || 0);
+    globalRaised += (d.amount || 0) + (d.manual || 0) + (archiveByDonor.get(d.id) || 0);
   });
-  if (allDonorIds.length > 0) {
-    const placeholders = allDonorIds.map(() => '?').join(',');
-    const archiveRows = db.prepare(`SELECT amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND closed_at >= ?`).all(...allDonorIds, startOfMonth);
-    archiveRows.forEach(r => { globalRaised += (r.amount || 0) + (r.manual || 0); });
-  }
-  globalTarget = Object.values(byPhone).reduce((s, c) => s + (c.target || 0), 0); // היעדים לא חופפים בין מתרימים בד"כ - סכימה תקינה
+  globalTarget = Object.values(byPhone).reduce((s, c) => s + (c.target || 0), 0);
 
   const summary = {
     totalDonors: globalTotal, totalCompleted: globalCompleted, totalNeedReturn: globalNeedReturn,
@@ -1278,6 +1292,8 @@ async function syncTelefonimSheet() {
     });
     const phoneRows = phonesResp.data.values || [];
     const byPhone = collectorsByPhone();
+    const allDonors = getAllDonors();
+    const archiveByDonor = getArchiveThisMonthByDonor();
 
     const output = phoneRows.map(row => {
       const rawPhone = row[0];
@@ -1286,8 +1302,8 @@ async function syncTelefonimSheet() {
       const collector = byPhone[phone];
       if (!collector) return null;
 
-      const stats = donorStatsFor(collector.assignments);
-      const raised = Math.round(monthlyTotalForCollector(collector.assignments));
+      const stats = donorStatsFor(collector.assignments, allDonors);
+      const raised = Math.round(monthlyTotalForCollector(collector.assignments, allDonors, archiveByDonor));
       const target = collector.target || 0;
       const pct = target > 0 ? Math.round((raised / target) * 100) : '';
       return [stats.total, stats.completed, stats.needReturn, raised, target || '', pct !== '' ? pct + '%' : ''];
