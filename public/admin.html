@@ -133,7 +133,7 @@
       <input id="c_note_before" placeholder="תשובה לפני הגבייה (רשות)" style="flex:1;">
       <input id="c_note_after" placeholder="תשובה אחרי הגבייה (רשות)" style="flex:1;">
     </div>
-    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th><th></th></tr></thead><tbody></tbody></table>
+    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>קוד רחוב</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -217,9 +217,12 @@ async function loadCollectors() {
 }
 
 function renderCollectorRow(c) {
+  const codeMissing = !c.street_code;
   return `
     <tr data-id="${c.id}">
-      <td>${esc(c.phone)}</td><td>${esc(c.name)}</td><td>${esc(c.street_name)}</td>
+      <td>${esc(c.phone)}</td><td>${esc(c.name)}</td>
+      <td style="${codeMissing ? 'background:#fce4e4;color:#a32d2d;font-weight:bold;' : ''}">${esc(c.street_code) || 'חסר!'}</td>
+      <td>${esc(c.street_name)}</td>
       <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td><td>${esc(c.collector_status || '')}</td>
       <td>
         <button onclick="editCollectorRow(${c.id})">ערוך</button>
@@ -236,6 +239,7 @@ async function editCollectorRow(id) {
   row.innerHTML = `
     <td><input value="${esc(c.phone)}" id="ce_phone_${id}"></td>
     <td><input value="${esc(c.name)}" id="ce_name_${id}"></td>
+    <td><input value="${esc(c.street_code)}" id="ce_street_code_${id}" style="width:70px"></td>
     <td><input value="${esc(c.street_name)}" id="ce_street_${id}"></td>
     <td><input value="${esc(c.buildings)}" id="ce_buildings_${id}" placeholder="הכל"></td>
     <td><input value="${c.target || 0}" id="ce_target_${id}" type="number" style="width:80px"></td>
@@ -246,7 +250,7 @@ async function editCollectorRow(id) {
     </td>`;
   // שורת המשך קטנה עם ההערות (לא בתוך הטבלה הראשית כדי לא לשבור אותה)
   const notesRow = document.createElement('tr');
-  notesRow.innerHTML = `<td colspan="7">
+  notesRow.innerHTML = `<td colspan="8">
     <input value="${esc(c.note_before)}" id="ce_note_before_${id}" placeholder="תשובה לפני הגבייה" style="width:45%;margin-left:4px;">
     <input value="${esc(c.note_after)}" id="ce_note_after_${id}" placeholder="תשובה אחרי הגבייה" style="width:45%;">
   </td>`;
@@ -254,13 +258,11 @@ async function editCollectorRow(id) {
 }
 
 async function saveCollectorRow(id) {
-  const collectors = await api('/api/admin/collectors');
-  const existing = collectors.find(c => c.id === id);
   const body = {
     phone: document.getElementById('ce_phone_' + id).value.trim(),
     name: document.getElementById('ce_name_' + id).value.trim(),
     street_name: document.getElementById('ce_street_' + id).value.trim(),
-    street_code: existing ? existing.street_code : '', // לא ניתן לעריכה כאן
+    street_code: document.getElementById('ce_street_code_' + id).value.trim(),
     buildings: document.getElementById('ce_buildings_' + id).value.trim(),
     target: Number(document.getElementById('ce_target_' + id).value) || 0,
     collector_status: document.getElementById('ce_status_' + id).value.trim(),
