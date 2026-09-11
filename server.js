@@ -1188,10 +1188,10 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const street_code = r[0];       // A: קוד רחוב
         const buildings = r[6] || '';   // G: אחראי על בנינים
         const target = Number(r[7]) || 0; // H: סכום יעד כללי
-        const noteAfterCombined = [r[18], r[20]].filter(Boolean).join(' | '); // S + U: תשובות אחרי הגבייה
-        const noteBefore = r[19] || '';  // T: תשובה לטלפן תזכורת לגביה
-        const collectorStatus = r[21] || ''; // V: סטטוס טיפול טלפנים
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfterCombined, collectorStatus);
+        const noteAfter = r[18] || '';    // "יבצע מחובר למערכת..." - תשובה אחרי הגבייה
+        const noteBefore = r[19] || '';   // "מאוד נהנה יעבור..." - תשובה לפני/תזכורת לגביה
+        const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus);
       });
     });
     tx(rows);
