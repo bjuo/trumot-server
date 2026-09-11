@@ -76,6 +76,10 @@
 <div class="summary-row" id="summary"></div>
 <div class="filters" id="filters"></div>
 <div class="filters" id="statusFilters"></div>
+<div style="margin-bottom:16px;">
+  <button class="export-btn" onclick="exportExcelFromTelefonim('collectors')" style="background:#0f6e56;margin-left:8px;">ייצוא מתרימים לאקסל</button>
+  <button class="export-btn" onclick="exportExcelFromTelefonim('donors')" style="background:#0f6e56;">ייצוא תורמים לאקסל</button>
+</div>
 <button class="export-btn" onclick="exportPdf()" style="margin-bottom:16px;background:#0f6e56;">ייצוא ל-PDF (לפי הסינון הנוכחי)</button>
 <div class="grid" id="grid"></div>
 
@@ -221,6 +225,12 @@ function exportPdf() {
   const filterLabels = { all: 'כל המתרימים', inprogress: 'מתרימים באמצע', notstarted: 'מתרימים שלא התחילו', done: 'מתרימים שסיימו' };
   document.getElementById('printTitle').innerHTML = `<h2>${filterLabels[currentFilter]}</h2><div style="color:#777;">הופק בתאריך ${new Date().toLocaleDateString('he-IL')}</div>`;
   window.print();
+}
+
+function exportExcelFromTelefonim(kind) {
+  const pin = document.getElementById('pin').value.trim();
+  if (!pin) { document.getElementById('err').textContent = 'נא למלא קוד גישה'; return; }
+  window.location.href = `/api/admin/export-excel/${kind}?pin=${encodeURIComponent(pin)}`;
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
