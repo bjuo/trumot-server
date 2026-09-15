@@ -65,7 +65,6 @@
     <div class="row-form">
       <label>קובץ תורמים: <input type="file" id="donorsCsvFile" accept=".csv"></label>
       <button onclick="importDonorsCsv()">ייבא תורמים</button>
-      <button class="danger" onclick="clearDonors()">מחק את כל התורמים</button>
       <button class="secondary" onclick="exportExcel('donors')">ייצוא לאקסל</button>
     </div>
   </div>
@@ -80,6 +79,7 @@
       <input id="d_apartment" placeholder="דירה">
       <input id="d_code" placeholder="קוד תורם">
       <input id="d_name" placeholder="שם התורם">
+      <input id="d_manual" placeholder="תרומה ידנית" type="number">
       <button onclick="addDonor()">הוסף</button>
     </div>
     <div id="donorsCount" style="font-weight:bold;margin-bottom:8px;"></div>
@@ -170,16 +170,18 @@ function renderDonorRow(d) {
     </tr>`;
 }
 
-function editDonorRow(id) {
+async function editDonorRow(id) {
+  const donors = await api('/api/admin/donors');
+  const d = donors.find(x => x.id === id);
+  if (!d) return;
   const row = document.querySelector(`#donorsTable tr[data-id="${id}"]`);
-  const cells = row.querySelectorAll('td');
-  const vals = [cells[0].textContent, cells[1].textContent, cells[2].textContent, cells[3].textContent, cells[4].textContent];
   row.innerHTML = `
-    <td><input value="${esc(vals[0])}" id="e_street_${id}"></td>
-    <td><input value="${esc(vals[1])}" id="e_building_${id}" style="width:50px"></td>
-    <td><input value="${esc(vals[2])}" id="e_apartment_${id}" style="width:50px"></td>
-    <td><input value="${esc(vals[3])}" id="e_code_${id}" style="width:60px"></td>
-    <td><input value="${esc(vals[4])}" id="e_name_${id}"></td>
+    <td><input value="${esc(d.street_name)}" id="e_street_${id}"></td>
+    <td><input value="${esc(d.building)}" id="e_building_${id}" style="width:50px"></td>
+    <td><input value="${esc(d.apartment)}" id="e_apartment_${id}" style="width:50px"></td>
+    <td><input value="${esc(d.donor_code)}" id="e_code_${id}" style="width:60px"></td>
+    <td><input value="${esc(d.name)}" id="e_name_${id}"></td>
+    <td><input value="${d.manual || 0}" id="e_manual_${id}" type="number" style="width:70px" placeholder="ידני"></td>
     <td colspan="2">
       <button onclick="saveDonorRow(${id})">שמור</button>
       <button class="secondary" onclick="loadDonors()">בטל</button>
@@ -187,19 +189,17 @@ function editDonorRow(id) {
 }
 
 async function saveDonorRow(id) {
+  const donors = await api('/api/admin/donors');
+  const existing = donors.find(d => d.id === id);
   const body = {
     street_name: document.getElementById('e_street_' + id).value.trim(),
-    street_code: '', // לא ניתן לעריכה כאן - נשאר כפי שהיה
+    street_code: existing ? existing.street_code : '', // לא ניתן לעריכה כאן - נשאר כפי שהיה
     building: document.getElementById('e_building_' + id).value.trim(),
     apartment: document.getElementById('e_apartment_' + id).value.trim(),
     donor_code: document.getElementById('e_code_' + id).value.trim(),
     name: document.getElementById('e_name_' + id).value.trim(),
+    manual: Number(document.getElementById('e_manual_' + id).value) || 0,
   };
-  // שולפים את קוד הרחוב הקיים כדי לא לאבד אותו (לא ערכנו אותו כאן)
-  const donors = await api('/api/admin/donors');
-  const existing = donors.find(d => d.id === id);
-  body.street_code = existing ? existing.street_code : '';
-
   await api('/api/admin/donors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   loadDonors();
 }
@@ -224,19 +224,23 @@ async function addDonor() {
   const body = {
     street_code: val('d_street_code'), street_name: val('d_street_name'),
     building: val('d_building'), apartment: val('d_apartment'),
-    donor_code: val('d_code'), name: val('d_name'),
+    donor_code: val('d_code'), name: val('d_name'), manual: Number(val('d_manual')) || 0,
   };
   await api('/api/admin/donors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  ['d_street_code','d_street_name','d_building','d_apartment','d_code','d_name'].forEach(id => document.getElementById(id).value = '');
+  ['d_street_code','d_street_name','d_building','d_apartment','d_code','d_name','d_manual'].forEach(id => document.getElementById(id).value = '');
   loadDonors();
 }
 
 async function deleteDonor(id) { await api('/api/admin/donors/' + id, { method: 'DELETE' }); loadDonors(); }
 
 async function closeCampaign() {
-  if (!confirm('בטוח? זה יעביר לארכיון את המגבית הנוכחית ויתחיל אחת חדשה וריקה.')) return;
+  const periods = ['ראש השנה', 'יום כיפור', 'סוכות'];
+  const closingPeriod = prompt('איזו מגבית נסגרת עכשיו?\n' + periods.join(' / '), periods[0]);
+  if (!closingPeriod) return;
+  const nextPeriod = prompt('איזו מגבית תהיה פעילה מעכשיו? (השאר ריק אם אין)', '');
+  if (!confirm(`בטוח? "${closingPeriod}" תיסגר לארכיון${nextPeriod ? ', והמגבית הפעילה תהיה "' + nextPeriod + '"' : ''}.`)) return;
   try {
-    const r = await api('/api/admin/close-campaign');
+    const r = await api('/api/admin/close-campaign?closingPeriod=' + encodeURIComponent(closingPeriod) + '&nextPeriod=' + encodeURIComponent(nextPeriod || ''));
     document.getElementById('status').textContent = r.message;
     loadDonors();
   } catch (e) {
@@ -338,11 +342,6 @@ async function syncCollectorsFromSheet() {
   }
 }
 
-async function clearDonors() {
-  if (!confirm('בטוח? זה ימחק את כל התורמים לצמיתות.')) return;
-  await api('/api/admin/donors', { method: 'DELETE' });
-  loadDonors();
-}
 
 async function clearCollectors() {
   if (!confirm('בטוח? זה ימחק את כל המתרימים לצמיתות.')) return;
