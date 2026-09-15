@@ -45,6 +45,7 @@ ensureColumn('collectors', 'note_before', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'note_after', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'collector_status', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
+ensureColumn('donors', 'under_20', "INTEGER DEFAULT 0");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -131,12 +132,14 @@ function handleYemotRequest(req, res) {
     case 'seq_pick_building': result = handleSeqPickBuilding(answer, state); break;
     case 'seq_action': result = handleSeqAction(answer, state); break;
     case 'seq_amount': result = handleSeqAmount(answer, state); break;
+    case 'seq_under20_check': result = handleSeqUnder20Check(answer, state); break;
     case 'bycode_number': result = handleBycodeNumber(answer, state); break;
     case 'bycode_pick_building': result = handleBycodePickBuilding(answer, state); break;
     case 'bycode_confirm': result = handleBycodeConfirm(answer, state); break;
     case 'info_action': result = handleInfoAction(answer, state); break;
     case 'bycode_action': result = handleBycodeAction(answer, state); break;
     case 'bycode_amount': result = handleBycodeAmount(answer, state); break;
+    case 'bycode_under20_check': result = handleBycodeUnder20Check(answer, state); break;
     case 'batch_number': result = handleBatchNumber(answer, state); break;
     case 'batch_confirm': result = handleBatchConfirm(answer, state); break;
     case 'batch_status': result = handleBatchStatus(answer, state); break;
@@ -415,6 +418,16 @@ function handleSeqAmount(amount, state) {
     return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + retry;
   }
   setAmount(donorId, num);
+  state.pendingUnder20DonorId = donorId;
+  state.step = 'seq_under20_check';
+  return readBuild('t-אם ברצונך לסמן שזו תרומה מתחת לעשרים שקלים הקישו 9, לכל מקש אחר המשך', 'Under20', { max: 1, min: 0, say: 'NO', okOnEmpty: true }, state);
+}
+
+function handleSeqUnder20Check(answer, state) {
+  if (state.pendingUnder20DonorId) {
+    setUnder20(state.pendingUnder20DonorId, answer === '9');
+    delete state.pendingUnder20DonorId;
+  }
   return advanceSeq(state, true);
 }
 
@@ -579,6 +592,16 @@ function handleBycodeAmount(amount, state) {
     return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + retry;
   }
   setAmount(state.bycodeId, num);
+  state.pendingUnder20DonorId = state.bycodeId;
+  state.step = 'bycode_under20_check';
+  return readBuild('t-אם ברצונך לסמן שזו תרומה מתחת לעשרים שקלים הקישו 9, לכל מקש אחר המשך', 'Under20', { max: 1, min: 0, say: 'NO', okOnEmpty: true }, state);
+}
+
+function handleBycodeUnder20Check(answer, state) {
+  if (state.pendingUnder20DonorId) {
+    setUnder20(state.pendingUnder20DonorId, answer === '9');
+    delete state.pendingUnder20DonorId;
+  }
   state.step = 'bycode_number';
   return 'id_list_message=t-עודכן בהצלחה&' + askDonorCode(state);
 }
@@ -622,7 +645,7 @@ function handleBatchConfirm(choice, state) {
 }
 
 function batchStatusMenu(state) {
-  const msg = 't-לסימון לא פתחו את הדלת לכולם הקישו 1, לסימון ביקשו לבוא פעם אחרת לכולם הקישו 2, לסימון פתחו ולא תרמו לכולם הקישו 3, לחזרה לתפריט הראשי הקישו כוכבית';
+  const msg = 't-לסימון לא פתחו את הדלת לכולם הקישו 1, לסימון ביקשו לבוא פעם אחרת לכולם הקישו 2, לסימון פתחו ולא תרמו לכולם הקישו 3, לסימון שתרמו פחות מעשרים שקלים לכולם הקישו 4, לחזרה לתפריט הראשי הקישו כוכבית';
   return readBuild(msg, 'BatchStatus', { max: 1, min: 1, say: 'NO' }, state);
 }
 
@@ -630,6 +653,16 @@ function handleBatchStatus(choice, state) {
   if (choice === '*') {
     state.step = 'menu';
     return mainMenuRead(state);
+  }
+  if (choice === '4') {
+    let updated = 0;
+    state.batchList.forEach(apt => {
+      const matches = findDonorsByApt(state.assignments, apt);
+      matches.forEach(m => { setUnder20(m.id, true); updated++; });
+    });
+    state.step = 'menu';
+    state.batchList = [];
+    return `id_list_message=t-סומנו ${updated} דירות כתרמו פחות מעשרים שקלים&` + mainMenuRead(state);
   }
   const statusText = choice === '1' ? 'לא פתחו' : choice === '2' ? 'ביקשו לבוא פעם אחרת' : choice === '3' ? 'פתחו ולא תרמו' : null;
   if (!statusText) {
@@ -762,6 +795,10 @@ function setStatus(donorId, status) {
 function setAmount(donorId, amount) {
   // מנקים סטטוס קודם - הסכום עצמו כבר משקף שהתורם תרם בפועל
   db.prepare('UPDATE donors SET amount = ?, status = \'\', updated_at = ? WHERE id = ?').run(amount, new Date().toISOString(), donorId);
+}
+
+function setUnder20(donorId, flag) {
+  db.prepare('UPDATE donors SET under_20 = ? WHERE id = ?').run(flag ? 1 : 0, donorId);
 }
 
 function closeCurrentCampaign(closingPeriodName, nextPeriodName) {
@@ -1292,9 +1329,9 @@ const XLSX = require('xlsx');
 
 app.get('/api/admin/export-excel/donors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const donors = db.prepare('SELECT id, street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
-  const headers = ['מזהה', 'קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון'];
-  const rows = donors.map(d => [d.id, d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at]);
+  const donors = db.prepare('SELECT id, street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at, under_20 FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
+  const headers = ['מזהה', 'קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון', 'מתחת ל-20'];
+  const rows = donors.map(d => [d.id, d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at, d.under_20 ? 'כן' : '']);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'תורמים');
