@@ -746,39 +746,13 @@ function donorStatsFor(assignments, allDonors) {
   return { total, completed, needReturn, notOpened, askedReturn, doneNoReturn, notHandled };
 }
 
-// שולף את כל שורות הארכיון של החודש הנוכחי פעם אחת, ממופה לפי donor_id -
-// חוסך שאילתה נפרדת לכל מתרים כשמחשבים סטטיסטיקות לכמה מתרימים ברצף
-function getArchiveThisMonthByDonor() {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const rows = db.prepare('SELECT donor_id, amount, manual FROM campaign_archive WHERE closed_at >= ?').all(startOfMonth);
-  const map = new Map();
-  rows.forEach(r => {
-    const cur = map.get(r.donor_id) || 0;
-    map.set(r.donor_id, cur + (r.amount || 0) + (r.manual || 0));
-  });
-  return map;
-}
 
-function monthlyTotalForCollector(assignments, allDonors, archiveByDonor) {
+function monthlyTotalForCollector(assignments, allDonors, archiveMap) {
+  // מחשב לפי סכימת כל המגביות (ר"ה+יו"כ+סוכות) - לא לפי חודש קלנדרי.
+  // השם נשאר כמו שהיה כדי לא לשבור קריאות קיימות, אבל הלוגיקה עודכנה.
   const donors = (allDonors || getAllDonors()).filter(d => matchesAssignment(assignments, String(d.street_code), d.building));
-  let total = donors.reduce((s, d) => s + (d.amount || 0) + (d.manual || 0), 0);
-
-  if (archiveByDonor) {
-    donors.forEach(d => { total += archiveByDonor.get(d.id) || 0; });
-  } else {
-    const ids = donors.map(d => d.id);
-    if (ids.length > 0) {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const placeholders = ids.map(() => '?').join(',');
-      const archiveRows = db.prepare(
-        `SELECT amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND closed_at >= ?`
-      ).all(...ids, startOfMonth);
-      total += archiveRows.reduce((s, r) => s + (r.amount || 0) + (r.manual || 0), 0);
-    }
-  }
-  return total;
+  const periodTotals = getFullPeriodBreakdown(donors, archiveMap);
+  return Object.values(periodTotals).reduce((s, v) => s + v, 0);
 }
 
 function setStatus(donorId, status) {
@@ -806,11 +780,36 @@ function closeCurrentCampaign(closingPeriodName, nextPeriodName) {
   return donors.length;
 }
 
+// שולף את כל שורות הארכיון (כל הזמנים, כל המגביות) פעם אחת, ממופה לפי donor_id ואז לפי שם מגבית -
+// חוסך שאילתה נפרדת לכל מתרים כשמחשבים פירוט לפי מגבית לכמה מתרים ברצף
+function getAllArchiveByDonorAndPeriod() {
+  const rows = db.prepare('SELECT donor_id, period_name, amount, manual FROM campaign_archive WHERE period_name != \'\'').all();
+  const map = new Map(); // donor_id -> { periodName: amount }
+  rows.forEach(r => {
+    if (!map.has(r.donor_id)) map.set(r.donor_id, {});
+    const perDonor = map.get(r.donor_id);
+    perDonor[r.period_name] = (perDonor[r.period_name] || 0) + (r.amount || 0) + (r.manual || 0);
+  });
+  return map;
+}
+
 // סה"כ לפי מגבית (ר"ה/יו"כ/סוכות) לתורמים נתונים - כולל הסכום החי המיוחס למגבית הפעילה כרגע
-function getPeriodTotals(donorIds) {
+function getPeriodTotals(donorIds, archiveMap) {
   const totals = {};
   PERIODS.forEach(p => { totals[p] = 0; });
   if (donorIds.length === 0) return totals;
+
+  if (archiveMap) {
+    donorIds.forEach(id => {
+      const perDonor = archiveMap.get(id);
+      if (!perDonor) return;
+      Object.entries(perDonor).forEach(([period, amount]) => {
+        if (totals[period] === undefined) totals[period] = 0;
+        totals[period] += amount;
+      });
+    });
+    return totals;
+  }
 
   const placeholders = donorIds.map(() => '?').join(',');
   const archiveRows = db.prepare(
@@ -825,10 +824,10 @@ function getPeriodTotals(donorIds) {
 
 // כמו getPeriodTotals, אבל מקבל את שורות התורמים עצמן (לא רק ID) כדי לצרף גם
 // את הסכום החי (שטרם נסגר לארכיון) לתוך המגבית הפעילה כרגע
-function getFullPeriodBreakdown(donors) {
+function getFullPeriodBreakdown(donors, archiveMap) {
   const currentPeriod = getCurrentPeriod();
   const donorIds = donors.map(d => d.id);
-  const totals = getPeriodTotals(donorIds);
+  const totals = getPeriodTotals(donorIds, archiveMap);
   const liveTotal = donors.reduce((s, d) => s + (d.amount || 0) + (d.manual || 0), 0);
   if (totals[currentPeriod] === undefined) totals[currentPeriod] = 0;
   totals[currentPeriod] += liveTotal;
@@ -838,7 +837,7 @@ function getFullPeriodBreakdown(donors) {
 function getDashboardData() {
   const byPhone = collectorsByPhone();
   const allDonors = getAllDonors();
-  const archiveByDonor = getArchiveThisMonthByDonor();
+  const archiveByDonor = getAllArchiveByDonorAndPeriod();
   return Object.values(byPhone).map(c => {
     const stats = donorStatsFor(c.assignments, allDonors);
     const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
@@ -946,7 +945,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
   });
 
   const allDonors = getAllDonors();
-  const archiveByDonor = getArchiveThisMonthByDonor();
+  const archiveByDonor = getAllArchiveByDonorAndPeriod();
 
   const result = Object.values(byPhone).map(c => {
     const stats = donorStatsFor(c.assignments, allDonors);
@@ -974,7 +973,9 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     else if (d.status === 'לא פתחו') { globalNeedReturn++; globalNotOpened++; }
     else if (d.status === 'ביקשו לבוא פעם אחרת') globalNeedReturn++;
     else if (d.status !== 'פתחו ולא תרמו') globalNotHandled++;
-    globalRaised += (d.amount || 0) + (d.manual || 0) + (archiveByDonor.get(d.id) || 0);
+    const donorArchive = archiveByDonor.get(d.id);
+    const donorArchiveTotal = donorArchive ? Object.values(donorArchive).reduce((s, v) => s + v, 0) : 0;
+    globalRaised += (d.amount || 0) + (d.manual || 0) + donorArchiveTotal;
   });
   globalTarget = Object.values(byPhone).reduce((s, c) => s + (c.target || 0), 0);
 
@@ -1339,7 +1340,7 @@ async function syncTelefonimSheet() {
   try {
     const byPhone = collectorsByPhone();
     const allDonors = getAllDonors();
-    const archiveByDonor = getArchiveThisMonthByDonor();
+    const archiveByDonor = getAllArchiveByDonorAndPeriod();
 
     const collectorsPayload = Object.entries(byPhone).map(([phone, c]) => {
       const stats = donorStatsFor(c.assignments, allDonors);
