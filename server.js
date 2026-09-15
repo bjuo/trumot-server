@@ -44,6 +44,26 @@ function ensureColumn(table, column, definition) {
 ensureColumn('collectors', 'note_before', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'note_after', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'collector_status', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
+ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
+
+// ============================================================================
+// ניהול "מגבית פעילה" - ראש השנה / יום כיפור / סוכות
+// ============================================================================
+const PERIODS = ['ראש השנה', 'יום כיפור', 'סוכות'];
+
+function getSetting(key, defaultValue) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : defaultValue;
+}
+
+function setSetting(key, value) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+function getCurrentPeriod() {
+  return getSetting('current_period', PERIODS[0]);
+}
 
 // ============================================================================
 // מצבי שיחה - זיכרון פשוט (שרת רץ ברציפות, אין צורך ב-CacheService)
@@ -712,16 +732,18 @@ function getDistinctBuildingsForAssignments(assignments) {
 }
 
 function donorStatsFor(assignments, allDonors) {
-  let total = 0, completed = 0, needReturn = 0, doneNoReturn = 0, notHandled = 0;
+  let total = 0, completed = 0, notOpened = 0, askedReturn = 0, doneNoReturn = 0, notHandled = 0;
   (allDonors || getAllDonors()).forEach(d => {
     if (!matchesAssignment(assignments, String(d.street_code), d.building)) return;
     total++;
     if (hasAmountSet(d)) completed++;
-    else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') needReturn++;
+    else if (d.status === 'לא פתחו') notOpened++;
+    else if (d.status === 'ביקשו לבוא פעם אחרת') askedReturn++;
     else if (d.status === 'פתחו ולא תרמו') doneNoReturn++;
     else notHandled++; // אין סכום ואין סטטוס בכלל - לא טופל עדיין
   });
-  return { total, completed, needReturn, doneNoReturn, notHandled };
+  const needReturn = notOpened + askedReturn;
+  return { total, completed, needReturn, notOpened, askedReturn, doneNoReturn, notHandled };
 }
 
 // שולף את כל שורות הארכיון של החודש הנוכחי פעם אחת, ממופה לפי donor_id -
@@ -768,19 +790,49 @@ function setAmount(donorId, amount) {
   db.prepare('UPDATE donors SET amount = ?, status = \'\', updated_at = ? WHERE id = ?').run(amount, new Date().toISOString(), donorId);
 }
 
-function closeCurrentCampaign() {
+function closeCurrentCampaign(closingPeriodName, nextPeriodName) {
   const now = new Date().toISOString();
   const donors = getAllDonors();
-  const insertArchive = db.prepare('INSERT INTO campaign_archive (donor_id, amount, manual, status, updated_at, closed_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const insertArchive = db.prepare('INSERT INTO campaign_archive (donor_id, amount, manual, status, updated_at, closed_at, period_name) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const resetDonor = db.prepare('UPDATE donors SET amount = 0, manual = 0, status = \'\', updated_at = NULL WHERE id = ?');
   const tx = db.transaction(rows => {
     rows.forEach(d => {
-      insertArchive.run(d.id, d.amount || 0, d.manual || 0, d.status || '', d.updated_at, now);
+      insertArchive.run(d.id, d.amount || 0, d.manual || 0, d.status || '', d.updated_at, now, closingPeriodName);
       resetDonor.run(d.id);
     });
   });
   tx(donors);
+  if (nextPeriodName) setSetting('current_period', nextPeriodName);
   return donors.length;
+}
+
+// סה"כ לפי מגבית (ר"ה/יו"כ/סוכות) לתורמים נתונים - כולל הסכום החי המיוחס למגבית הפעילה כרגע
+function getPeriodTotals(donorIds) {
+  const totals = {};
+  PERIODS.forEach(p => { totals[p] = 0; });
+  if (donorIds.length === 0) return totals;
+
+  const placeholders = donorIds.map(() => '?').join(',');
+  const archiveRows = db.prepare(
+    `SELECT period_name, amount, manual FROM campaign_archive WHERE donor_id IN (${placeholders}) AND period_name != ''`
+  ).all(...donorIds);
+  archiveRows.forEach(r => {
+    if (totals[r.period_name] === undefined) totals[r.period_name] = 0;
+    totals[r.period_name] += (r.amount || 0) + (r.manual || 0);
+  });
+  return totals;
+}
+
+// כמו getPeriodTotals, אבל מקבל את שורות התורמים עצמן (לא רק ID) כדי לצרף גם
+// את הסכום החי (שטרם נסגר לארכיון) לתוך המגבית הפעילה כרגע
+function getFullPeriodBreakdown(donors) {
+  const currentPeriod = getCurrentPeriod();
+  const donorIds = donors.map(d => d.id);
+  const totals = getPeriodTotals(donorIds);
+  const liveTotal = donors.reduce((s, d) => s + (d.amount || 0) + (d.manual || 0), 0);
+  if (totals[currentPeriod] === undefined) totals[currentPeriod] = 0;
+  totals[currentPeriod] += liveTotal;
+  return totals;
 }
 
 function getDashboardData() {
@@ -807,8 +859,15 @@ function checkPin(req, res) {
 
 app.get('/api/admin/close-campaign', (req, res) => {
   if (!checkPin(req, res)) return;
-  const count = closeCurrentCampaign();
-  res.json({ message: `מגבית נסגרה לארכיון ונפתחה מגבית חדשה ריקה, ${count} תורמים.` });
+  const closingPeriod = req.query.closingPeriod || getCurrentPeriod();
+  const nextPeriod = req.query.nextPeriod || '';
+  const count = closeCurrentCampaign(closingPeriod, nextPeriod);
+  res.json({ message: `מגבית "${closingPeriod}" נסגרה לארכיון (${count} תורמים).${nextPeriod ? ' המגבית הפעילה כעת: ' + nextPeriod : ''}` });
+});
+
+app.get('/api/admin/current-period', (req, res) => {
+  if (!checkPin(req, res)) return;
+  res.json({ currentPeriod: getCurrentPeriod(), periods: PERIODS });
 });
 
 app.get('/api/admin/dashboard', (req, res) => {
@@ -863,6 +922,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
       byPhone[phone] = {
         name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [],
         note_before: c.note_before || '', note_after: c.note_after || '', collector_status: c.collector_status || '',
+        updater_phone: c.updater_phone || '',
       };
     }
     const streetCode = String(c.street_code || '').trim();
@@ -882,6 +942,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     if (c.note_before) byPhone[phone].note_before = c.note_before;
     if (c.note_after) byPhone[phone].note_after = c.note_after;
     if (c.collector_status) byPhone[phone].collector_status = c.collector_status;
+    if (c.updater_phone) byPhone[phone].updater_phone = c.updater_phone;
   });
 
   const allDonors = getAllDonors();
@@ -892,21 +953,26 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
     const doneCount = stats.completed + stats.doneNoReturn;
     const donePercent = stats.total > 0 ? Math.round((doneCount / stats.total) * 100) : 100;
-    const remaining = c.target > 0 ? Math.max(0, c.target - raised) : 0;
+    const collectorDonors = allDonors.filter(d => matchesAssignment(c.assignments, String(d.street_code), d.building));
+    const periodTotals = getFullPeriodBreakdown(collectorDonors);
+    const totalAcrossPeriods = Object.values(periodTotals).reduce((s, v) => s + v, 0);
+    const remaining = c.target > 0 ? Math.max(0, c.target - totalAcrossPeriods) : 0;
     return {
       phone: c.phone, name: c.name, street_name: c.streetsDisplay.join(' | '), buildings: '',
-      total: stats.total, completed: stats.completed, needReturn: stats.needReturn, notHandled: stats.notHandled,
-      raised, target: c.target || 0, donePercent, remaining,
+      total: stats.total, completed: stats.completed, needReturn: stats.needReturn, notOpened: stats.notOpened, notHandled: stats.notHandled,
+      raised, target: c.target || 0, donePercent, remaining, periodTotals,
       note_before: c.note_before, note_after: c.note_after, collector_status: c.collector_status,
+      updater_phone: c.updater_phone,
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 
   // סיכום אמיתי - ישירות מכל התורמים, בלי תלות בחפיפות בין מתרימים (זוגות וכו')
-  let globalTotal = 0, globalCompleted = 0, globalNeedReturn = 0, globalNotHandled = 0, globalRaised = 0, globalTarget = 0;
+  let globalTotal = 0, globalCompleted = 0, globalNeedReturn = 0, globalNotOpened = 0, globalNotHandled = 0, globalRaised = 0, globalTarget = 0;
   allDonors.forEach(d => {
     globalTotal++;
     if (hasAmountSet(d)) globalCompleted++;
-    else if (d.status === 'ביקשו לבוא פעם אחרת' || d.status === 'לא פתחו') globalNeedReturn++;
+    else if (d.status === 'לא פתחו') { globalNeedReturn++; globalNotOpened++; }
+    else if (d.status === 'ביקשו לבוא פעם אחרת') globalNeedReturn++;
     else if (d.status !== 'פתחו ולא תרמו') globalNotHandled++;
     globalRaised += (d.amount || 0) + (d.manual || 0) + (archiveByDonor.get(d.id) || 0);
   });
@@ -914,7 +980,7 @@ app.get('/api/admin/telefonim-view', (req, res) => {
 
   const summary = {
     totalDonors: globalTotal, totalCompleted: globalCompleted, totalNeedReturn: globalNeedReturn,
-    totalNotHandled: globalNotHandled, totalRaised: Math.round(globalRaised), totalTarget: globalTarget,
+    totalNotOpened: globalNotOpened, totalNotHandled: globalNotHandled, totalRaised: Math.round(globalRaised), totalTarget: globalTarget,
     totalCollectors: Object.keys(byPhone).length,
   };
 
@@ -928,19 +994,19 @@ app.get('/api/admin/donors', (req, res) => {
 
 app.post('/api/admin/donors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const { street_code, street_name, building, apartment, donor_code, name } = req.body;
+  const { street_code, street_name, building, apartment, donor_code, name, manual } = req.body;
   const info = db.prepare(
-    'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(street_code, street_name, building, apartment, donor_code, name);
+    'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, manual) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(street_code, street_name, building, apartment, donor_code, name, Number(manual) || 0);
   res.json({ id: info.lastInsertRowid });
 });
 
 app.put('/api/admin/donors/:id', (req, res) => {
   if (!checkPin(req, res)) return;
-  const { street_code, street_name, building, apartment, donor_code, name } = req.body;
+  const { street_code, street_name, building, apartment, donor_code, name, manual } = req.body;
   db.prepare(
-    'UPDATE donors SET street_code = ?, street_name = ?, building = ?, apartment = ?, donor_code = ?, name = ? WHERE id = ?'
-  ).run(street_code, street_name, building, apartment, donor_code, name, req.params.id);
+    'UPDATE donors SET street_code = ?, street_name = ?, building = ?, apartment = ?, donor_code = ?, name = ?, manual = ? WHERE id = ?'
+  ).run(street_code, street_name, building, apartment, donor_code, name, Number(manual) || 0, req.params.id);
   res.json({ ok: true });
 });
 
@@ -1113,8 +1179,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
     const updateBasic = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ? WHERE id = ?');
     const updateBasicWithStatus = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, status = ? WHERE id = ?');
-    const updateWithAmount = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, status = \'\' WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const updateWithAmounts = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = \'\' WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
     const skippedNames = [];
@@ -1129,26 +1195,32 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
           return;
         }
         const sheetAmount = Number(amountRaw) || 0;
+        const sheetManual = Number(manualRaw) || 0;
         const sheetStatus = statusRaw || '';
         const existing = findExisting.get(street_code, building, donor_code);
 
         if (existing) {
-          const existingTotal = (existing.amount || 0) + (existing.manual || 0);
-          if (sheetAmount > 0 && existingTotal === 0) {
-            // אין עדיין סכום אמיתי אצלנו, אבל בגיליון יש - מאמצים את הסכום ומנקים סטטוס ישן
-            updateWithAmount.run(street_name, apartment, name, sheetAmount, existing.id);
+          const existingAmount = existing.amount || 0;
+          const existingManual = existing.manual || 0;
+          const existingTotal = existingAmount + existingManual;
+          const sheetTotal = sheetAmount + sheetManual;
+
+          if (sheetTotal > 0 && existingTotal === 0) {
+            // אין עדיין סכום אמיתי אצלנו (לא רגיל ולא ידני), אבל בגיליון יש - מאמצים את שניהם ומנקים סטטוס ישן
+            updateWithAmounts.run(street_name, apartment, name, sheetAmount, sheetManual, existing.id);
             amountsAdopted++;
           } else if (existingTotal === 0) {
-            // אין סכום אמיתי (לא אצלנו ולא בגיליון) - מייבאים גם סטטוס מהגיליון (למשל "לא פתחו")
+            // אין סכום אמיתי בכלל (לא אצלנו ולא בגיליון) - מייבאים גם סטטוס מהגיליון (למשל "לא פתחו")
             updateBasicWithStatus.run(street_name, apartment, name, sheetStatus, existing.id);
           } else {
-            // כבר יש סכום אמיתי אצלנו (מהטלפון) - לא נוגעים בו, מעדכנים רק פרטים בסיסיים
+            // כבר יש סכום אמיתי אצלנו (מהטלפון או ידני קודם) - לא נוגעים בסכומים, מעדכנים רק פרטים בסיסיים
             updateBasic.run(street_name, apartment, name, existing.id);
           }
           updated++;
         } else {
-          // תורם חדש: אם יש סכום מהגיליון, אין סטטוס (הסכום עצמו מייתר אותו); אחרת מייבאים את הסטטוס
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetAmount > 0 ? '' : sheetStatus);
+          // תורם חדש: אם יש סכום כלשהו מהגיליון, אין סטטוס (הסכום עצמו מייתר אותו); אחרת מייבאים את הסטטוס
+          const hasSheetAmount = (sheetAmount + sheetManual) > 0;
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, hasSheetAmount ? '' : sheetStatus);
           created++;
         }
       });
@@ -1177,7 +1249,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
       rows.forEach(r => {
@@ -1191,7 +1263,8 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteAfter = r[18] || '';    // "יבצע מחובר למערכת..." - תשובה אחרי הגבייה
         const noteBefore = r[19] || '';   // "מאוד נהנה יעבור..." - תשובה לפני/תזכורת לגביה
         const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus);
+        const updaterPhone = r[44] || '';  // AS: נייד של מי שמעדכן את התרומות (אם המתרים לא מעדכן בעצמו)
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone);
       });
     });
     tx(rows);
