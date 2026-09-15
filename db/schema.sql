@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS collectors (
   target REAL DEFAULT 0,
   note_before TEXT DEFAULT '',   -- תשובה לפני הגבייה
   note_after TEXT DEFAULT '',    -- תשובה אחרי הגבייה
-  collector_status TEXT DEFAULT ''  -- סיווג סטטוס של המתרים עצמו (למשל "פעיל", "לא פנה אליו")
+  collector_status TEXT DEFAULT '',  -- סיווג סטטוס של המתרים עצמו (למשל "פעיל", "לא פנה אליו")
+  updater_phone TEXT DEFAULT ''  -- נייד של מי שמעדכן את התרומות עבור מתרים שלא נוח לו לעדכן בעצמו
 );
 
 CREATE INDEX IF NOT EXISTS idx_collectors_phone ON collectors(phone);
@@ -44,8 +45,16 @@ CREATE TABLE IF NOT EXISTS campaign_archive (
   status TEXT DEFAULT '',
   updated_at TEXT,
   closed_at TEXT NOT NULL,
+  period_name TEXT DEFAULT '',  -- שם המגבית שנסגרה (למשל "ראש השנה", "יום כיפור", "סוכות")
   FOREIGN KEY(donor_id) REFERENCES donors(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_archive_closed_at ON campaign_archive(closed_at);
 CREATE INDEX IF NOT EXISTS idx_archive_donor ON campaign_archive(donor_id);
+CREATE INDEX IF NOT EXISTS idx_archive_period ON campaign_archive(period_name);
+
+-- טבלת הגדרות כלליות - כרגע משמשת רק לזכור מהי המגבית הפעילה כעת
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
