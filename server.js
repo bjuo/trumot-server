@@ -1224,9 +1224,10 @@ function readBuild(promptSegment, baseName, opts, state) {
 }
 
 // ============================================================================
-// סנכרון תקופתי לטאב "טלפנים" בגוגל שיטס (עמודות K-P בלבד)
+// ייצוא תקופתי לטאב "טלפנים" בגוגל שיטס (עמודות K-N בלבד) - דרך Apps Script
+// פשוט בהרבה מ-Google Cloud Service Account: שולחים בקשה ל-Apps Script קטן
+// שכבר יש לו הרשאה לערוך את הגיליון שלו, בלי אישורים נוספים.
 // ============================================================================
-const { google } = require('googleapis');
 const XLSX = require('xlsx');
 
 app.get('/api/admin/export-excel/donors', (req, res) => {
@@ -1257,90 +1258,44 @@ app.get('/api/admin/export-excel/collectors', (req, res) => {
   res.send(buffer);
 });
 
-const TELEFONIM_SPREADSHEET_ID = process.env.TELEFONIM_SPREADSHEET_ID || '';
-const TELEFONIM_SHEET_NAME = process.env.TELEFONIM_SHEET_NAME || 'טלפנים';
-const TELEFONIM_PHONE_COL_LETTER = 'D';
-const TELEFONIM_STATS_RANGE = 'K:P'; // 6 עמודות: סך תורמים, השלימו, צריך לחזור, נאסף, יעד, אחוז
-const GOOGLE_SERVICE_ACCOUNT_KEY_PATH = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH || '';
-
-let sheetsClient = null;
-
-function getSheetsClient() {
-  if (sheetsClient) return sheetsClient;
-  if (!GOOGLE_SERVICE_ACCOUNT_KEY_PATH || !fs.existsSync(GOOGLE_SERVICE_ACCOUNT_KEY_PATH)) return null;
-  const auth = new google.auth.GoogleAuth({
-    keyFile: GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  sheetsClient = google.sheets({ version: 'v4', auth });
-  return sheetsClient;
-}
+const TELEFONIM_EXPORT_WEBHOOK_URL = process.env.TELEFONIM_EXPORT_WEBHOOK_URL || '';
+const TELEFONIM_EXPORT_SECRET = process.env.TELEFONIM_EXPORT_SECRET || '';
 
 async function syncTelefonimSheet() {
-  if (!TELEFONIM_SPREADSHEET_ID) return; // לא הוגדר - מדלגים בשקט
-  const sheets = getSheetsClient();
-  if (!sheets) {
-    console.error('סנכרון טלפנים: לא נמצא קובץ מפתח של חשבון שירות (GOOGLE_SERVICE_ACCOUNT_KEY_PATH)');
-    return;
-  }
-
+  if (!TELEFONIM_EXPORT_WEBHOOK_URL) return; // לא הוגדר - מדלגים בשקט
   try {
-    // קריאת כל מספרי הטלפון בעמודה D
-    const phonesResp = await sheets.spreadsheets.values.get({
-      spreadsheetId: TELEFONIM_SPREADSHEET_ID,
-      range: `${TELEFONIM_SHEET_NAME}!${TELEFONIM_PHONE_COL_LETTER}:${TELEFONIM_PHONE_COL_LETTER}`,
-    });
-    const phoneRows = phonesResp.data.values || [];
     const byPhone = collectorsByPhone();
     const allDonors = getAllDonors();
     const archiveByDonor = getArchiveThisMonthByDonor();
 
-    const output = phoneRows.map(row => {
-      const rawPhone = row[0];
-      if (!rawPhone) return null; // null = לא לגעת בשורה הזו בכלל
-      const phone = normalizePhone(String(rawPhone));
-      const collector = byPhone[phone];
-      if (!collector) return null;
-
-      const stats = donorStatsFor(collector.assignments, allDonors);
-      const raised = Math.round(monthlyTotalForCollector(collector.assignments, allDonors, archiveByDonor));
-      const target = collector.target || 0;
-      const pct = target > 0 ? Math.round((raised / target) * 100) : '';
-      return [stats.total, stats.completed, stats.needReturn, raised, target || '', pct !== '' ? pct + '%' : ''];
+    const collectorsPayload = Object.entries(byPhone).map(([phone, c]) => {
+      const stats = donorStatsFor(c.assignments, allDonors);
+      const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
+      return { phone, total: stats.total, completed: stats.completed, needReturn: stats.needReturn, raised };
     });
 
-    // כותבים רק לשורות שבאמת נמצאה בהן התאמה (data ל-batchUpdate עם null מדלג על התא)
-    const requests = output.map((vals, i) => {
-      if (!vals) return null;
-      return {
-        range: `${TELEFONIM_SHEET_NAME}!K${i + 1}:P${i + 1}`,
-        values: [vals],
-      };
-    }).filter(Boolean);
-
-    if (requests.length === 0) return;
-
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: TELEFONIM_SPREADSHEET_ID,
-      requestBody: { valueInputOption: 'RAW', data: requests },
+    const response = await fetch(TELEFONIM_EXPORT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: TELEFONIM_EXPORT_SECRET, collectors: collectorsPayload }),
     });
-
-    console.log(`סנכרון טלפנים: עודכנו ${requests.length} שורות`);
+    const result = await response.json();
+    if (result.error) console.error('שגיאה בייצוא טלפנים:', result.error);
+    else console.log(`ייצוא טלפנים: ${result.message}`);
   } catch (err) {
-    console.error('שגיאה בסנכרון טלפנים:', err.message);
+    console.error('שגיאה בייצוא טלפנים:', err.message);
   }
 }
 
-// הפעלה תקופתית כל 5 דקות, בדיוק כמו הטריגר שהיה ב-Apps Script
+// הפעלה תקופתית כל 5 דקות
 setInterval(syncTelefonimSheet, 5 * 60 * 1000);
-// הרצה ראשונה קצרה אחרי עליית השרת (לא מיידית, נותן לשרת להתייצב)
 setTimeout(syncTelefonimSheet, 15 * 1000);
 
-// אפשרות לרענון ידני דרך דפדפן/כפתור
+// אפשרות לייצוא ידני דרך דפדפן/כפתור
 app.get('/api/admin/sync-telefonim', async (req, res) => {
   if (!checkPin(req, res)) return;
   await syncTelefonimSheet();
-  res.json({ message: 'סנכרון טלפנים בוצע.' });
+  res.json({ message: 'ייצוא טלפנים בוצע.' });
 });
 
 // ============================================================================
