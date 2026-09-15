@@ -174,7 +174,7 @@ function renderDonorRow(d) {
     <tr data-id="${d.id}">
       <td>${esc(d.street_name)}</td><td>${esc(d.building)}</td><td>${esc(d.apartment)}</td>
       <td>${esc(d.donor_code)}</td><td>${esc(d.name)}</td>
-      <td>${(d.amount || 0) + (d.manual || 0)}</td><td>${esc(d.status || '')}</td>
+      <td>${(d.amount || 0) + (d.manual || 0)}${d.under_20 ? ' <span style="color:#993c1d;font-size:11px;">(מתחת ל-20)</span>' : ''}</td><td>${esc(d.status || '')}</td>
       <td>
         <button onclick="editDonorRow(${d.id})">ערוך</button>
         <button class="danger" onclick="deleteDonor(${d.id})">מחק</button>
