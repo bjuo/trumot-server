@@ -1004,10 +1004,10 @@ app.post('/api/admin/donors', (req, res) => {
 
 app.put('/api/admin/donors/:id', (req, res) => {
   if (!checkPin(req, res)) return;
-  const { street_code, street_name, building, apartment, donor_code, name, manual } = req.body;
+  const { street_code, street_name, building, apartment, donor_code, name, manual, status } = req.body;
   db.prepare(
-    'UPDATE donors SET street_code = ?, street_name = ?, building = ?, apartment = ?, donor_code = ?, name = ?, manual = ? WHERE id = ?'
-  ).run(street_code, street_name, building, apartment, donor_code, name, Number(manual) || 0, req.params.id);
+    'UPDATE donors SET street_code = ?, street_name = ?, building = ?, apartment = ?, donor_code = ?, name = ?, manual = ?, status = ? WHERE id = ?'
+  ).run(street_code, street_name, building, apartment, donor_code, name, Number(manual) || 0, status || '', req.params.id);
   res.json({ ok: true });
 });
 
@@ -1177,10 +1177,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const findExisting = db.prepare('SELECT id, amount, manual FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
-    const updateBasic = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ? WHERE id = ?');
-    const updateBasicWithStatus = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, status = ? WHERE id = ?');
-    const updateWithAmounts = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = \'\' WHERE id = ?');
+    const findExisting = db.prepare('SELECT id, amount FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
+    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ? WHERE id = ?');
     const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
@@ -1202,26 +1200,14 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
 
         if (existing) {
           const existingAmount = existing.amount || 0;
-          const existingManual = existing.manual || 0;
-          const existingTotal = existingAmount + existingManual;
-          const sheetTotal = sheetAmount + sheetManual;
-
-          if (sheetTotal > 0 && existingTotal === 0) {
-            // אין עדיין סכום אמיתי אצלנו (לא רגיל ולא ידני), אבל בגיליון יש - מאמצים את שניהם ומנקים סטטוס ישן
-            updateWithAmounts.run(street_name, apartment, name, sheetAmount, sheetManual, existing.id);
-            amountsAdopted++;
-          } else if (existingTotal === 0) {
-            // אין סכום אמיתי בכלל (לא אצלנו ולא בגיליון) - מייבאים גם סטטוס מהגיליון (למשל "לא פתחו")
-            updateBasicWithStatus.run(street_name, apartment, name, sheetStatus, existing.id);
-          } else {
-            // כבר יש סכום אמיתי אצלנו (מהטלפון או ידני קודם) - לא נוגעים בסכומים, מעדכנים רק פרטים בסיסיים
-            updateBasic.run(street_name, apartment, name, existing.id);
-          }
+          // הסכום הרגיל (טלפוני) מוגן ברגע שיש לו ערך אמיתי - לא נדרס יותר מהגיליון.
+          // תרומה ידנית וסטטוס תמיד באחריות הגיליון - נכתבים מחדש בכל סנכרון.
+          const newAmount = existingAmount > 0 ? existingAmount : sheetAmount;
+          if (newAmount > 0 && existingAmount === 0) amountsAdopted++;
+          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, existing.id);
           updated++;
         } else {
-          // תורם חדש: אם יש סכום כלשהו מהגיליון, אין סטטוס (הסכום עצמו מייתר אותו); אחרת מייבאים את הסטטוס
-          const hasSheetAmount = (sheetAmount + sheetManual) > 0;
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, hasSheetAmount ? '' : sheetStatus);
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus);
           created++;
         }
       });
@@ -1306,9 +1292,9 @@ const XLSX = require('xlsx');
 
 app.get('/api/admin/export-excel/donors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const donors = db.prepare('SELECT street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
-  const headers = ['קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון'];
-  const rows = donors.map(d => [d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at]);
+  const donors = db.prepare('SELECT id, street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
+  const headers = ['מזהה', 'קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון'];
+  const rows = donors.map(d => [d.id, d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'תורמים');
@@ -1320,9 +1306,9 @@ app.get('/api/admin/export-excel/donors', (req, res) => {
 
 app.get('/api/admin/export-excel/collectors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const collectors = db.prepare('SELECT phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status FROM collectors ORDER BY name').all();
-  const headers = ['טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס'];
-  const rows = collectors.map(c => [c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status]);
+  const collectors = db.prepare('SELECT id, phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status FROM collectors ORDER BY name').all();
+  const headers = ['מזהה', 'טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס'];
+  const rows = collectors.map(c => [c.id, c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'מתרימים');
