@@ -35,7 +35,7 @@
 
 <div class="card pin-bar">
   <label>קוד גישה (PIN):</label>
-  <input type="password" id="pin" placeholder="הקוד שהגדרת">
+  <input type="password" id="pin" placeholder="הקוד הסודי">
   <button onclick="loadAll()">התחבר וטען נתונים</button>
   <button class="danger" onclick="closeCampaign()">סגור מגבית ופתח חדשה</button>
   <a href="/telefonim.html" target="_blank" style="align-self:center;">פתח מסך ניהול טלפנים ←</a>
@@ -90,7 +90,7 @@
 <div class="tab-panel" id="tabPanel_collectors">
   <div class="card">
     <h3>ייצוא סטטיסטיקות לגיליון "טלפנים" (עמודות K-N בלבד)</h3>
-    <div class="hint">רץ אוטומטית כל 5 דקות. הגדרת TELEFONIM_EXPORT_WEBHOOK_URL ו-TELEFONIM_EXPORT_SECRET נדרשת בשרת (ראה README)</div>
+    <div class="hint">רץ אוטומטית כל 5 דקות</div>
     <button onclick="syncTelefonim()">ייצוא עכשיו</button>
     <div id="exportResult" style="margin-top:8px;"></div>
   </div>
