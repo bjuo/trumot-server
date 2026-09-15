@@ -83,6 +83,7 @@
       <button onclick="addDonor()">הוסף</button>
     </div>
     <div id="donorsCount" style="font-weight:bold;margin-bottom:8px;"></div>
+    <input id="donorsSearch" placeholder="חיפוש (שם/רחוב/קוד)..." oninput="renderDonorsTable()" style="width:100%;padding:8px;margin-bottom:10px;border-radius:8px;border:1px solid #ccc;">
     <table id="donorsTable"><thead><tr><th>רחוב</th><th>בניין</th><th>דירה</th><th>קוד</th><th>שם</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </div>
@@ -126,6 +127,7 @@
   <div class="card">
     <h3>רשימת מתרימים (תצוגה בלבד - עריכה מתבצעת בגיליון "טלפנים")</h3>
     <div class="hint">שדות ליבה (טלפון/שם/רחוב/בניינים/יעד/הערות/סיווג) נערכים בגיליון עצמו ומיובאים לכאן</div>
+    <input id="collectorsSearch" placeholder="חיפוש (שם/טלפון/רחוב)..." oninput="renderCollectorsTable()" style="width:100%;padding:8px;margin-bottom:10px;border-radius:8px;border:1px solid #ccc;">
     <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>קוד רחוב</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
@@ -151,10 +153,20 @@ async function loadAll() {
   }
 }
 
+let lastDonors = [];
+
 async function loadDonors() {
-  const donors = await api('/api/admin/donors');
-  document.getElementById('donorsCount').textContent = `סה"כ תורמים במסד: ${donors.length}`;
-  document.querySelector('#donorsTable tbody').innerHTML = donors.map(d => renderDonorRow(d)).join('');
+  lastDonors = await api('/api/admin/donors');
+  document.getElementById('donorsCount').textContent = `סה"כ תורמים במסד: ${lastDonors.length}`;
+  renderDonorsTable();
+}
+
+function renderDonorsTable() {
+  const q = (document.getElementById('donorsSearch').value || '').trim().toLowerCase();
+  const filtered = q
+    ? lastDonors.filter(d => [d.name, d.street_name, d.donor_code, d.apartment, d.building].some(v => String(v || '').toLowerCase().includes(q)))
+    : lastDonors;
+  document.querySelector('#donorsTable tbody').innerHTML = filtered.map(d => renderDonorRow(d)).join('');
 }
 
 function renderDonorRow(d) {
@@ -174,6 +186,7 @@ async function editDonorRow(id) {
   const donors = await api('/api/admin/donors');
   const d = donors.find(x => x.id === id);
   if (!d) return;
+  const statusOptions = ['', 'לא פתחו', 'ביקשו לבוא פעם אחרת', 'פתחו ולא תרמו'];
   const row = document.querySelector(`#donorsTable tr[data-id="${id}"]`);
   row.innerHTML = `
     <td><input value="${esc(d.street_name)}" id="e_street_${id}"></td>
@@ -182,7 +195,8 @@ async function editDonorRow(id) {
     <td><input value="${esc(d.donor_code)}" id="e_code_${id}" style="width:60px"></td>
     <td><input value="${esc(d.name)}" id="e_name_${id}"></td>
     <td><input value="${d.manual || 0}" id="e_manual_${id}" type="number" style="width:70px" placeholder="ידני"></td>
-    <td colspan="2">
+    <td><select id="e_status_${id}">${statusOptions.map(s => `<option value="${esc(s)}"${d.status === s ? ' selected' : ''}>${s || '(ריק)'}</option>`).join('')}</select></td>
+    <td>
       <button onclick="saveDonorRow(${id})">שמור</button>
       <button class="secondary" onclick="loadDonors()">בטל</button>
     </td>`;
@@ -199,14 +213,25 @@ async function saveDonorRow(id) {
     donor_code: document.getElementById('e_code_' + id).value.trim(),
     name: document.getElementById('e_name_' + id).value.trim(),
     manual: Number(document.getElementById('e_manual_' + id).value) || 0,
+    status: document.getElementById('e_status_' + id).value,
   };
   await api('/api/admin/donors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   loadDonors();
 }
 
+let lastCollectors = [];
+
 async function loadCollectors() {
-  const collectors = await api('/api/admin/collectors');
-  document.querySelector('#collectorsTable tbody').innerHTML = collectors.map(c => renderCollectorRow(c)).join('');
+  lastCollectors = await api('/api/admin/collectors');
+  renderCollectorsTable();
+}
+
+function renderCollectorsTable() {
+  const q = (document.getElementById('collectorsSearch').value || '').trim().toLowerCase();
+  const filtered = q
+    ? lastCollectors.filter(c => [c.name, c.phone, c.street_name, c.street_code].some(v => String(v || '').toLowerCase().includes(q)))
+    : lastCollectors;
+  document.querySelector('#collectorsTable tbody').innerHTML = filtered.map(c => renderCollectorRow(c)).join('');
 }
 
 function renderCollectorRow(c) {
