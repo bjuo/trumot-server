@@ -1260,8 +1260,8 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const street_code = r[0];       // A: קוד רחוב
         const buildings = r[6] || '';   // G: אחראי על בנינים
         const target = Number(r[7]) || 0; // H: סכום יעד כללי
-        const noteAfter = r[18] || '';    // "יבצע מחובר למערכת..." - תשובה אחרי הגבייה
-        const noteBefore = r[19] || '';   // "מאוד נהנה יעבור..." - תשובה לפני/תזכורת לגביה
+        const noteBefore = r[18] || '';   // S: "תשובה לטלפן תזכורת לגביה" - לפני הגבייה
+        const noteAfter = r[19] || '';    // T: "תשובה לטלפן אחרי הגביה"
         const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
         const updaterPhone = r[44] || '';  // AS: נייד של מי שמעדכן את התרומות (אם המתרים לא מעדכן בעצמו)
         insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone);
