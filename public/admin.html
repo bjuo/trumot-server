@@ -89,6 +89,13 @@
 
 <div class="tab-panel" id="tabPanel_collectors">
   <div class="card">
+    <h3>ייצוא סטטיסטיקות לגיליון "טלפנים" (עמודות K-N בלבד)</h3>
+    <div class="hint">רץ אוטומטית כל 5 דקות. הגדרת TELEFONIM_EXPORT_WEBHOOK_URL ו-TELEFONIM_EXPORT_SECRET נדרשת בשרת (ראה README)</div>
+    <button onclick="syncTelefonim()">ייצוא עכשיו</button>
+    <div id="exportResult" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
     <h3>סנכרון חי מגוגל שיטס (בלי הורדת קובץ)</h3>
     <div class="hint">הגיליון חייב להיות משותף כ"כל מי שיש לו את הקישור - צפייה" לפחות. מחליף את כל המתרימים.</div>
     <div class="row-form">
@@ -117,23 +124,9 @@
   </div>
 
   <div class="card">
-    <h3>הוספת מתרים</h3>
-    <div class="hint">בניינים: מספרים מופרדים בפסיק או נקודה-פסיק (למשל "5,7"). ריק = כל הבניינים ברחוב</div>
-    <div class="row-form">
-      <input id="c_phone" placeholder="טלפון">
-      <input id="c_name" placeholder="שם מתרים">
-      <input id="c_street_code" placeholder="קוד רחוב">
-      <input id="c_street_name" placeholder="שם רחוב">
-      <input id="c_buildings" placeholder="בניינים (רשות)">
-      <input id="c_target" placeholder="יעד חודשי" type="number">
-      <input id="c_status" placeholder="סיווג סטטוס (רשות)">
-      <button onclick="addCollector()">הוסף</button>
-    </div>
-    <div class="row-form">
-      <input id="c_note_before" placeholder="תשובה לפני הגבייה (רשות)" style="flex:1;">
-      <input id="c_note_after" placeholder="תשובה אחרי הגבייה (רשות)" style="flex:1;">
-    </div>
-    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>קוד רחוב</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th><th></th></tr></thead><tbody></tbody></table>
+    <h3>רשימת מתרימים (תצוגה בלבד - עריכה מתבצעת בגיליון "טלפנים")</h3>
+    <div class="hint">שדות ליבה (טלפון/שם/רחוב/בניינים/יעד/הערות/סיווג) נערכים בגיליון עצמו ומיובאים לכאן</div>
+    <table id="collectorsTable"><thead><tr><th>טלפון</th><th>שם</th><th>קוד רחוב</th><th>רחוב</th><th>בניינים</th><th>יעד</th><th>סיווג</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -224,53 +217,7 @@ function renderCollectorRow(c) {
       <td style="${codeMissing ? 'background:#fce4e4;color:#a32d2d;font-weight:bold;' : ''}">${esc(c.street_code) || 'חסר!'}</td>
       <td>${esc(c.street_name)}</td>
       <td>${esc(c.buildings) || 'הכל'}</td><td>${c.target || 0}</td><td>${esc(c.collector_status || '')}</td>
-      <td>
-        <button onclick="editCollectorRow(${c.id})">ערוך</button>
-        <button class="danger" onclick="deleteCollector(${c.id})">מחק</button>
-      </td>
     </tr>`;
-}
-
-async function editCollectorRow(id) {
-  const collectors = await api('/api/admin/collectors');
-  const c = collectors.find(x => x.id === id);
-  if (!c) return;
-  const row = document.querySelector(`#collectorsTable tr[data-id="${id}"]`);
-  row.innerHTML = `
-    <td><input value="${esc(c.phone)}" id="ce_phone_${id}"></td>
-    <td><input value="${esc(c.name)}" id="ce_name_${id}"></td>
-    <td><input value="${esc(c.street_code)}" id="ce_street_code_${id}" style="width:70px"></td>
-    <td><input value="${esc(c.street_name)}" id="ce_street_${id}"></td>
-    <td><input value="${esc(c.buildings)}" id="ce_buildings_${id}" placeholder="הכל"></td>
-    <td><input value="${c.target || 0}" id="ce_target_${id}" type="number" style="width:80px"></td>
-    <td><input value="${esc(c.collector_status)}" id="ce_status_${id}" style="width:100px"></td>
-    <td colspan="1">
-      <button onclick="saveCollectorRow(${id})">שמור</button>
-      <button class="secondary" onclick="loadCollectors()">בטל</button>
-    </td>`;
-  // שורת המשך קטנה עם ההערות (לא בתוך הטבלה הראשית כדי לא לשבור אותה)
-  const notesRow = document.createElement('tr');
-  notesRow.innerHTML = `<td colspan="8">
-    <input value="${esc(c.note_before)}" id="ce_note_before_${id}" placeholder="תשובה לפני הגבייה" style="width:45%;margin-left:4px;">
-    <input value="${esc(c.note_after)}" id="ce_note_after_${id}" placeholder="תשובה אחרי הגבייה" style="width:45%;">
-  </td>`;
-  row.after(notesRow);
-}
-
-async function saveCollectorRow(id) {
-  const body = {
-    phone: document.getElementById('ce_phone_' + id).value.trim(),
-    name: document.getElementById('ce_name_' + id).value.trim(),
-    street_name: document.getElementById('ce_street_' + id).value.trim(),
-    street_code: document.getElementById('ce_street_code_' + id).value.trim(),
-    buildings: document.getElementById('ce_buildings_' + id).value.trim(),
-    target: Number(document.getElementById('ce_target_' + id).value) || 0,
-    collector_status: document.getElementById('ce_status_' + id).value.trim(),
-    note_before: document.getElementById('ce_note_before_' + id).value.trim(),
-    note_after: document.getElementById('ce_note_after_' + id).value.trim(),
-  };
-  await api('/api/admin/collectors/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  loadCollectors();
 }
 
 async function addDonor() {
@@ -284,20 +231,7 @@ async function addDonor() {
   loadDonors();
 }
 
-async function addCollector() {
-  const body = {
-    phone: val('c_phone'), name: val('c_name'),
-    street_code: val('c_street_code'), street_name: val('c_street_name'),
-    buildings: val('c_buildings'), target: Number(val('c_target')) || 0,
-    collector_status: val('c_status'), note_before: val('c_note_before'), note_after: val('c_note_after'),
-  };
-  await api('/api/admin/collectors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  ['c_phone','c_name','c_street_code','c_street_name','c_buildings','c_target','c_status','c_note_before','c_note_after'].forEach(id => document.getElementById(id).value = '');
-  loadCollectors();
-}
-
 async function deleteDonor(id) { await api('/api/admin/donors/' + id, { method: 'DELETE' }); loadDonors(); }
-async function deleteCollector(id) { await api('/api/admin/collectors/' + id, { method: 'DELETE' }); loadCollectors(); }
 
 async function closeCampaign() {
   if (!confirm('בטוח? זה יעביר לארכיון את המגבית הנוכחית ויתחיל אחת חדשה וריקה.')) return;
@@ -414,6 +348,16 @@ async function clearCollectors() {
   if (!confirm('בטוח? זה ימחק את כל המתרימים לצמיתות.')) return;
   await api('/api/admin/collectors', { method: 'DELETE' });
   loadCollectors();
+}
+
+async function syncTelefonim() {
+  document.getElementById('exportResult').textContent = 'מייצא...';
+  try {
+    const r = await api('/api/admin/sync-telefonim');
+    document.getElementById('exportResult').textContent = r.message;
+  } catch (e) {
+    document.getElementById('exportResult').textContent = 'שגיאה: ' + e.message;
+  }
 }
 
 async function findOverlaps() {
