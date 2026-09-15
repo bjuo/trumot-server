@@ -46,14 +46,12 @@
   .print-title { display: none; }
   @media print {
     @page { size: A4; margin: 12mm; }
-    .setup, .filters, #countdown, .export-btn { display: none !important; }
+    .setup, .filters, #countdown, .export-btn, .summary-row { display: none !important; }
     .print-title { display: block; margin-bottom: 16px; }
     .card.incomplete { animation: none; border: 2px solid #e24b4a; }
     body { background: white; padding: 0; }
     .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .card { break-inside: avoid; page-break-inside: avoid; box-shadow: none; border: 1px solid #ddd; padding: 12px; }
-    .summary-row { break-inside: avoid; page-break-inside: avoid; }
-    .summary-card { box-shadow: none; border: 1px solid #ddd; }
   }
 </style>
 </head>
@@ -194,6 +192,10 @@ function render() {
     const pct = c.donePercent;
     const incomplete = pct < 100;
     const progressHtml = `<div class="progress-wrap"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div>`;
+    const financialPct = c.target > 0 ? Math.min(100, Math.round((c.raised / c.target) * 100)) : 0;
+    const financialProgressHtml = c.target > 0
+      ? `<div style="font-size:11px;color:#888;margin-top:8px;">אחוז מהיעד הכספי</div><div class="progress-wrap"><div class="progress-bar" style="width:${financialPct}%;background:linear-gradient(90deg,#534ab7,#8b7fd6);">${financialPct}%</div></div>`
+      : '';
     const statusBadge = c.collector_status ? `<span style="background:#eee;border-radius:8px;padding:2px 8px;font-size:12px;color:#555;">${esc(c.collector_status)}</span>` : '';
     const notesHtml = (c.note_before || c.note_after) ? `
         <div style="margin-top:8px;font-size:12px;color:#777;border-top:1px solid #eee;padding-top:6px;">
@@ -203,15 +205,20 @@ function render() {
     return `
       <div class="card${incomplete ? ' incomplete' : ''}">
         <div class="name">${esc(c.name)} ${statusBadge}</div>
-        <div class="phone">${esc(c.phone)}</div>
+        <div class="phone">נייד גובה: ${esc(c.phone)}</div>
+        ${c.updater_phone ? `<div class="phone">נייד מעדכן: ${esc(c.updater_phone)}</div>` : ''}
         <div class="street">${esc(c.street_name || '')}</div>
         <div class="stat-line"><span>סך תורמים</span><span>${c.total}</span></div>
         <div class="stat-line"><span>השלימו</span><span>${c.completed}</span></div>
-        <div class="stat-line"><span>צריך לחזור</span><span>${c.needReturn}</span></div>
+        <div class="stat-line"><span>צריך לחזור (סה"כ)</span><span>${c.needReturn}</span></div>
+        <div class="stat-line"><span>מתוכם לא פתחו</span><span>${c.notOpened || 0}</span></div>
         <div class="stat-line"><span>לא טופלו כלל</span><span>${c.notHandled || 0}</span></div>
         <div class="stat-line"><span>נאסף</span><span>${c.raised.toLocaleString()} ${c.target ? '/ ' + c.target.toLocaleString() : ''} ש"ח</span></div>
+        ${renderPeriodTotals(c.periodTotals)}
         ${c.target > 0 ? `<div class="stat-line"><span>נותר להשלמת גביה</span><span>${c.remaining.toLocaleString()} ש"ח</span></div>` : ''}
+        <div style="font-size:11px;color:#888;margin-top:8px;font-weight:bold;">אחוז שכנים שטופלו (לא קשור ליעד הכספי!)</div>
         ${progressHtml}
+        ${financialProgressHtml}
         ${notesHtml}
       </div>`;
   }).join('');
@@ -231,6 +238,15 @@ function exportExcelFromTelefonim(kind) {
   const pin = document.getElementById('pin').value.trim();
   if (!pin) { document.getElementById('err').textContent = 'נא למלא קוד גישה'; return; }
   window.location.href = `/api/admin/export-excel/${kind}?pin=${encodeURIComponent(pin)}`;
+}
+
+function renderPeriodTotals(periodTotals) {
+  if (!periodTotals) return '';
+  const entries = Object.entries(periodTotals);
+  if (entries.length === 0) return '';
+  return entries.map(([period, amount]) =>
+    `<div class="stat-line"><span>נאסף ${esc(period)}</span><span>${amount.toLocaleString()} ש"ח</span></div>`
+  ).join('');
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
