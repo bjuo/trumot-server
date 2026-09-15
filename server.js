@@ -1335,7 +1335,7 @@ const TELEFONIM_EXPORT_WEBHOOK_URL = process.env.TELEFONIM_EXPORT_WEBHOOK_URL ||
 const TELEFONIM_EXPORT_SECRET = process.env.TELEFONIM_EXPORT_SECRET || '';
 
 async function syncTelefonimSheet() {
-  if (!TELEFONIM_EXPORT_WEBHOOK_URL) return; // לא הוגדר - מדלגים בשקט
+  if (!TELEFONIM_EXPORT_WEBHOOK_URL) return { error: 'TELEFONIM_EXPORT_WEBHOOK_URL לא מוגדר בשרת' };
   try {
     const byPhone = collectorsByPhone();
     const allDonors = getAllDonors();
@@ -1355,8 +1355,10 @@ async function syncTelefonimSheet() {
     const result = await response.json();
     if (result.error) console.error('שגיאה בייצוא טלפנים:', result.error);
     else console.log(`ייצוא טלפנים: ${result.message}`);
+    return result;
   } catch (err) {
     console.error('שגיאה בייצוא טלפנים:', err.message);
+    return { error: err.message };
   }
 }
 
@@ -1367,8 +1369,9 @@ setTimeout(syncTelefonimSheet, 15 * 1000);
 // אפשרות לייצוא ידני דרך דפדפן/כפתור
 app.get('/api/admin/sync-telefonim', async (req, res) => {
   if (!checkPin(req, res)) return;
-  await syncTelefonimSheet();
-  res.json({ message: 'ייצוא טלפנים בוצע.' });
+  const result = await syncTelefonimSheet();
+  if (result && result.error) return res.status(500).json({ error: result.error });
+  res.json({ message: (result && result.message) || 'ייצוא טלפנים בוצע.' });
 });
 
 // ============================================================================
