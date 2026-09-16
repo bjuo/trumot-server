@@ -132,14 +132,12 @@ function handleYemotRequest(req, res) {
     case 'seq_pick_building': result = handleSeqPickBuilding(answer, state); break;
     case 'seq_action': result = handleSeqAction(answer, state); break;
     case 'seq_amount': result = handleSeqAmount(answer, state); break;
-    case 'seq_under20_check': result = handleSeqUnder20Check(answer, state); break;
     case 'bycode_number': result = handleBycodeNumber(answer, state); break;
     case 'bycode_pick_building': result = handleBycodePickBuilding(answer, state); break;
     case 'bycode_confirm': result = handleBycodeConfirm(answer, state); break;
     case 'info_action': result = handleInfoAction(answer, state); break;
     case 'bycode_action': result = handleBycodeAction(answer, state); break;
     case 'bycode_amount': result = handleBycodeAmount(answer, state); break;
-    case 'bycode_under20_check': result = handleBycodeUnder20Check(answer, state); break;
     case 'batch_number': result = handleBatchNumber(answer, state); break;
     case 'batch_confirm': result = handleBatchConfirm(answer, state); break;
     case 'batch_status': result = handleBatchStatus(answer, state); break;
@@ -418,18 +416,9 @@ function handleSeqAmount(amount, state) {
     return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + retry;
   }
   setAmount(donorId, num);
-  state.pendingUnder20DonorId = donorId;
-  state.step = 'seq_under20_check';
-  return readBuild('t-אם ברצונך לסמן שזו תרומה מתחת לעשרים שקלים הקישו 9, לכל מקש אחר המשך', 'Under20', { max: 1, min: 0, say: 'NO', okOnEmpty: true }, state);
-}
-
-function handleSeqUnder20Check(answer, state) {
-  if (state.pendingUnder20DonorId) {
-    setUnder20(state.pendingUnder20DonorId, answer === '9');
-    delete state.pendingUnder20DonorId;
-  }
   return advanceSeq(state, true);
 }
+
 
 function advanceSeq(state, wasUpdated) {
   state.seqIndex++;
@@ -592,16 +581,6 @@ function handleBycodeAmount(amount, state) {
     return 'id_list_message=t-הסכום חייב להיות גדול מאפס&' + retry;
   }
   setAmount(state.bycodeId, num);
-  state.pendingUnder20DonorId = state.bycodeId;
-  state.step = 'bycode_under20_check';
-  return readBuild('t-אם ברצונך לסמן שזו תרומה מתחת לעשרים שקלים הקישו 9, לכל מקש אחר המשך', 'Under20', { max: 1, min: 0, say: 'NO', okOnEmpty: true }, state);
-}
-
-function handleBycodeUnder20Check(answer, state) {
-  if (state.pendingUnder20DonorId) {
-    setUnder20(state.pendingUnder20DonorId, answer === '9');
-    delete state.pendingUnder20DonorId;
-  }
   state.step = 'bycode_number';
   return 'id_list_message=t-עודכן בהצלחה&' + askDonorCode(state);
 }
@@ -1274,6 +1253,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const rows = readCsvText(csvText);
 
     const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    let rowIdx = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
       rows.forEach(r => {
@@ -1288,6 +1268,10 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteAfter = r[19] || '';    // T: "תשובה לטלפן אחרי הגביה"
         const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
         const updaterPhone = r[44] || '';  // AS: נייד של מי שמעדכן את התרומות (אם המתרים לא מעדכן בעצמו)
+        if (rowIdx < 5) {
+          console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[18]=${JSON.stringify(r[18])} r[19]=${JSON.stringify(r[19])} r[20]=${JSON.stringify(r[20])} | סה"כ עמודות בשורה=${r.length}`);
+        }
+        rowIdx++;
         insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone);
       });
     });
