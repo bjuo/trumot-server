@@ -1292,9 +1292,9 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteAfter = r[19] || '';    // T: "תשובה לטלפן אחרי הגביה"
         const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
         const updaterPhone = r[44] || '';  // AS: נייד של מי שמעדכן את התרומות (אם המתרים לא מעדכן בעצמו)
-        const noteBeforeYomKipur = r[53] || '';   // BB: תשובה לפני הגביה - יום כיפור
-        const noteAfterYomKipur = r[54] || '';    // BC: תשובה אחרי הגביה - יום כיפור
-        const collectorStatusYomKipur = r[55] || ''; // BD: סטטוס טיפול טלפנים - יום כיפור
+        const noteBeforeYomKipur = r[52] || '';   // BA: תשובה יום ה - יום כיפור
+        const noteAfterYomKipur = r[53] || '';    // BB: תשובה - יום כיפור
+        const collectorStatusYomKipur = '';        // אין עוד עמודה לזה - יתווסף בהמשך אם יידרש
         if (rowIdx < 5) {
           console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[18]=${JSON.stringify(r[18])} r[19]=${JSON.stringify(r[19])} r[20]=${JSON.stringify(r[20])} | סה"כ עמודות בשורה=${r.length}`);
         }
