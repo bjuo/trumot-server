@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS donors (
   manual REAL DEFAULT 0,
   status TEXT DEFAULT '',
   updated_at TEXT,
-  under_20 INTEGER DEFAULT 0  -- דגל: תרם פחות מ-20 ש"ח (עצמאי מהסטטוס והסכום)
+  under_20 INTEGER DEFAULT 0,  -- דגל: תרם פחות מ-20 ש"ח (עצמאי מהסטטוס והסכום)
+  system_id TEXT DEFAULT ''  -- מזהה קבוע של התורם מעמודה L בגיליון
 );
 
 CREATE INDEX IF NOT EXISTS idx_donors_street ON donors(street_code);
