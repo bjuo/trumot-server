@@ -47,6 +47,7 @@ ensureColumn('collectors', 'collector_status', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
 ensureColumn('donors', 'under_20', "INTEGER DEFAULT 0");
 ensureColumn('collectors', 'collector_code', "TEXT DEFAULT ''");
+ensureColumn('donors', 'system_id', "TEXT DEFAULT ''");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -1165,15 +1166,16 @@ app.post('/api/admin/import-donors-full-from-sheet', async (req, res) => {
     const rows = readCsvText(csvText);
 
     const insert = db.prepare(
-      'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at, system_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     let imported = 0, skipped = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM donors').run();
       rows.forEach(r => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, status, updated_at] = r;
+        const systemId = r[11] || ''; // L: מזהה קבוע של התורם
         if (!street_code || !building || !donor_code) { skipped++; return; }
-        insert.run(street_code, street_name, building, apartment, donor_code, name, Number(amountRaw) || 0, Number(manualRaw) || 0, status || '', updated_at || null);
+        insert.run(street_code, street_name, building, apartment, donor_code, name, Number(amountRaw) || 0, Number(manualRaw) || 0, status || '', updated_at || null, systemId);
         imported++;
       });
     });
@@ -1195,8 +1197,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const rows = readCsvText(csvText);
 
     const findExisting = db.prepare('SELECT id, amount FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
-    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ? WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ?, system_id = ? WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, system_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
     const skippedNames = [];
@@ -1204,6 +1206,10 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const tx = db.transaction(rows => {
       rows.forEach((r, idx) => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, statusRaw] = r;
+        const systemId = r[11] || ''; // L: מזהה קבוע של התורם
+        if (idx < 5) {
+          console.log(`[sync-donors] שורה ${idx}: name=${name} | r[9]=${JSON.stringify(r[9])} r[10]=${JSON.stringify(r[10])} r[11]=${JSON.stringify(r[11])} r[12]=${JSON.stringify(r[12])} | סה"כ עמודות=${r.length}`);
+        }
         if (!street_code || !building || !donor_code) {
           skipped++;
           skippedNames.push(`${name || '(ללא שם)'} - ${street_name || ''} בניין ${building || '?'}`);
@@ -1221,10 +1227,10 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
           // תרומה ידנית וסטטוס תמיד באחריות הגיליון - נכתבים מחדש בכל סנכרון.
           const newAmount = existingAmount > 0 ? existingAmount : sheetAmount;
           if (newAmount > 0 && existingAmount === 0) amountsAdopted++;
-          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, existing.id);
+          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, systemId, existing.id);
           updated++;
         } else {
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus);
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus, systemId);
           created++;
         }
       });
@@ -1315,9 +1321,9 @@ const XLSX = require('xlsx');
 
 app.get('/api/admin/export-excel/donors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const donors = db.prepare('SELECT id, street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at, under_20 FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
-  const headers = ['מזהה', 'קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון', 'מתחת ל-20'];
-  const rows = donors.map(d => [d.id, d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at, d.under_20 ? 'כן' : '']);
+  const donors = db.prepare('SELECT id, street_code, street_name, building, apartment, donor_code, name, amount, manual, status, updated_at, under_20, system_id FROM donors ORDER BY street_code, CAST(building AS INTEGER), CAST(apartment AS INTEGER)').all();
+  const headers = ['מזהה', 'קוד רחוב', 'שם רחוב', 'בניין', 'דירה', 'קוד תורם', 'שם', 'סכום', 'תרומה ידנית', 'סטטוס', 'תאריך עדכון', 'מתחת ל-20', 'מזהה קבוע'];
+  const rows = donors.map(d => [d.id, d.street_code, d.street_name, d.building, d.apartment, d.donor_code, d.name, d.amount, d.manual, d.status, d.updated_at, d.under_20 ? 'כן' : '', d.system_id]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'תורמים');
