@@ -46,6 +46,7 @@ ensureColumn('collectors', 'note_after', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'collector_status', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
 ensureColumn('donors', 'under_20', "INTEGER DEFAULT 0");
+ensureColumn('collectors', 'collector_code', "TEXT DEFAULT ''");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -1252,7 +1253,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     let rowIdx = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
@@ -1262,6 +1263,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const name = r[4];              // E: שם הגובה
         const street_name = r[5];       // F: שם רחוב
         const street_code = r[0];       // A: קוד רחוב
+        const collector_code = r[1] || '';  // B: "מזהה1" - קוד המתרים
         const buildings = r[6] || '';   // G: אחראי על בנינים
         const target = Number(r[7]) || 0; // H: סכום יעד כללי
         const noteBefore = r[18] || '';   // S: "תשובה לטלפן תזכורת לגביה" - לפני הגבייה
@@ -1272,7 +1274,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
           console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[18]=${JSON.stringify(r[18])} r[19]=${JSON.stringify(r[19])} r[20]=${JSON.stringify(r[20])} | סה"כ עמודות בשורה=${r.length}`);
         }
         rowIdx++;
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone);
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code);
       });
     });
     tx(rows);
@@ -1327,9 +1329,9 @@ app.get('/api/admin/export-excel/donors', (req, res) => {
 
 app.get('/api/admin/export-excel/collectors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const collectors = db.prepare('SELECT id, phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status FROM collectors ORDER BY name').all();
-  const headers = ['מזהה', 'טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס'];
-  const rows = collectors.map(c => [c.id, c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status]);
+  const collectors = db.prepare('SELECT id, phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, collector_code FROM collectors ORDER BY name').all();
+  const headers = ['מזהה', 'טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס', 'קוד מתרים'];
+  const rows = collectors.map(c => [c.id, c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status, c.collector_code]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'מתרימים');
