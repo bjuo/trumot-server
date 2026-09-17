@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS collectors (
   note_before TEXT DEFAULT '',   -- תשובה לפני הגבייה
   note_after TEXT DEFAULT '',    -- תשובה אחרי הגבייה
   collector_status TEXT DEFAULT '',  -- סיווג סטטוס של המתרים עצמו (למשל "פעיל", "לא פנה אליו")
-  updater_phone TEXT DEFAULT ''  -- נייד של מי שמעדכן את התרומות עבור מתרים שלא נוח לו לעדכן בעצמו
+  updater_phone TEXT DEFAULT '',  -- נייד של מי שמעדכן את התרומות עבור מתרים שלא נוח לו לעדכן בעצמו
+  collector_code TEXT DEFAULT ''  -- "מזהה1" מהגיליון - קוד/מזהה פנימי של המתרים
 );
 
 CREATE INDEX IF NOT EXISTS idx_collectors_phone ON collectors(phone);
