@@ -48,6 +48,9 @@ ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
 ensureColumn('donors', 'under_20', "INTEGER DEFAULT 0");
 ensureColumn('collectors', 'collector_code', "TEXT DEFAULT ''");
 ensureColumn('donors', 'system_id', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_before_yomkipur', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_after_yomkipur', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'collector_status_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -928,8 +931,7 @@ app.get('/api/admin/find-overlaps', (req, res) => {
   res.json(overlaps);
 });
 
-app.get('/api/admin/telefonim-view', (req, res) => {
-  if (!checkPin(req, res)) return;
+function computeCollectorsFullData() {
   const cData = db.prepare('SELECT * FROM collectors ORDER BY name').all();
 
   const byPhone = {};
@@ -939,7 +941,9 @@ app.get('/api/admin/telefonim-view', (req, res) => {
       byPhone[phone] = {
         name: c.name, phone: c.phone, assignments: [], target: 0, streetsDisplay: [],
         note_before: c.note_before || '', note_after: c.note_after || '', collector_status: c.collector_status || '',
-        updater_phone: c.updater_phone || '',
+        updater_phone: c.updater_phone || '', collector_code: c.collector_code || '',
+        note_before_yomkipur: c.note_before_yomkipur || '', note_after_yomkipur: c.note_after_yomkipur || '',
+        collector_status_yomkipur: c.collector_status_yomkipur || '',
       };
     }
     const streetCode = String(c.street_code || '').trim();
@@ -955,17 +959,20 @@ app.get('/api/admin/telefonim-view', (req, res) => {
       }
     }
     if (c.target > 0) byPhone[phone].target = c.target;
-    // אם למתרים כמה שורות, נשמור את ההערות/סיווג העדכניים ביותר שאינם ריקים
     if (c.note_before) byPhone[phone].note_before = c.note_before;
     if (c.note_after) byPhone[phone].note_after = c.note_after;
     if (c.collector_status) byPhone[phone].collector_status = c.collector_status;
     if (c.updater_phone) byPhone[phone].updater_phone = c.updater_phone;
+    if (c.collector_code) byPhone[phone].collector_code = c.collector_code;
+    if (c.note_before_yomkipur) byPhone[phone].note_before_yomkipur = c.note_before_yomkipur;
+    if (c.note_after_yomkipur) byPhone[phone].note_after_yomkipur = c.note_after_yomkipur;
+    if (c.collector_status_yomkipur) byPhone[phone].collector_status_yomkipur = c.collector_status_yomkipur;
   });
 
   const allDonors = getAllDonors();
   const archiveByDonor = getAllArchiveByDonorAndPeriod();
 
-  const result = Object.values(byPhone).map(c => {
+  return Object.values(byPhone).map(c => {
     const stats = donorStatsFor(c.assignments, allDonors);
     const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
     const doneCount = stats.completed + stats.doneNoReturn;
@@ -979,9 +986,18 @@ app.get('/api/admin/telefonim-view', (req, res) => {
       total: stats.total, completed: stats.completed, needReturn: stats.needReturn, notOpened: stats.notOpened, notHandled: stats.notHandled,
       raised, target: c.target || 0, donePercent, remaining, periodTotals,
       note_before: c.note_before, note_after: c.note_after, collector_status: c.collector_status,
-      updater_phone: c.updater_phone,
+      updater_phone: c.updater_phone, collector_code: c.collector_code,
+      note_before_yomkipur: c.note_before_yomkipur, note_after_yomkipur: c.note_after_yomkipur,
+      collector_status_yomkipur: c.collector_status_yomkipur,
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
+}
+
+app.get('/api/admin/telefonim-view', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const result = computeCollectorsFullData();
+  const allDonors = getAllDonors();
+  const archiveByDonor = getAllArchiveByDonorAndPeriod();
 
   // סיכום אמיתי - ישירות מכל התורמים, בלי תלות בחפיפות בין מתרימים (זוגות וכו')
   let globalTotal = 0, globalCompleted = 0, globalNeedReturn = 0, globalNotOpened = 0, globalNotHandled = 0, globalRaised = 0, globalTarget = 0;
@@ -995,12 +1011,12 @@ app.get('/api/admin/telefonim-view', (req, res) => {
     const donorArchiveTotal = donorArchive ? Object.values(donorArchive).reduce((s, v) => s + v, 0) : 0;
     globalRaised += (d.amount || 0) + (d.manual || 0) + donorArchiveTotal;
   });
-  globalTarget = Object.values(byPhone).reduce((s, c) => s + (c.target || 0), 0);
+  globalTarget = result.reduce((s, c) => s + (c.target || 0), 0);
 
   const summary = {
     totalDonors: globalTotal, totalCompleted: globalCompleted, totalNeedReturn: globalNeedReturn,
     totalNotOpened: globalNotOpened, totalNotHandled: globalNotHandled, totalRaised: Math.round(globalRaised), totalTarget: globalTarget,
-    totalCollectors: Object.keys(byPhone).length,
+    totalCollectors: result.length,
   };
 
   res.json({ collectors: result, summary });
@@ -1259,7 +1275,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code, note_before_yomkipur, note_after_yomkipur, collector_status_yomkipur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     let rowIdx = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
@@ -1276,11 +1292,14 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteAfter = r[19] || '';    // T: "תשובה לטלפן אחרי הגביה"
         const collectorStatus = r[20] || ''; // "לעקוב אחרי הגביה" - סטטוס טיפול טלפנים
         const updaterPhone = r[44] || '';  // AS: נייד של מי שמעדכן את התרומות (אם המתרים לא מעדכן בעצמו)
+        const noteBeforeYomKipur = r[53] || '';   // BB: תשובה לפני הגביה - יום כיפור
+        const noteAfterYomKipur = r[54] || '';    // BC: תשובה אחרי הגביה - יום כיפור
+        const collectorStatusYomKipur = r[55] || ''; // BD: סטטוס טיפול טלפנים - יום כיפור
         if (rowIdx < 5) {
           console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[18]=${JSON.stringify(r[18])} r[19]=${JSON.stringify(r[19])} r[20]=${JSON.stringify(r[20])} | סה"כ עמודות בשורה=${r.length}`);
         }
         rowIdx++;
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code);
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur);
       });
     });
     tx(rows);
@@ -1335,9 +1354,22 @@ app.get('/api/admin/export-excel/donors', (req, res) => {
 
 app.get('/api/admin/export-excel/collectors', (req, res) => {
   if (!checkPin(req, res)) return;
-  const collectors = db.prepare('SELECT id, phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, collector_code FROM collectors ORDER BY name').all();
-  const headers = ['מזהה', 'טלפון', 'שם', 'שם רחוב', 'קוד רחוב', 'בניינים', 'יעד', 'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס', 'קוד מתרים'];
-  const rows = collectors.map(c => [c.id, c.phone, c.name, c.street_name, c.street_code, c.buildings, c.target, c.note_before, c.note_after, c.collector_status, c.collector_code]);
+  const data = computeCollectorsFullData();
+  const periodNames = PERIODS; // ['ראש השנה', 'יום כיפור', 'סוכות']
+  const headers = [
+    'טלפון', 'שם', 'קוד מתרים', 'רחוב', 'יעד', 'נאסף (סה"כ)', 'נותר להשלמה',
+    'סך תורמים', 'השלימו', 'צריך לחזור (סה"כ)', 'מתוכם לא פתחו', 'לא טופלו כלל', 'אחוז שכנים שטופלו',
+    ...periodNames.map(p => `נאסף ${p}`),
+    'תשובה לפני הגבייה', 'תשובה אחרי הגבייה', 'סיווג סטטוס', 'נייד מעדכן',
+    'תשובה לפני הגבייה - יוכ', 'תשובה אחרי הגבייה - יוכ', 'סיווג סטטוס - יוכ',
+  ];
+  const rows = data.map(c => [
+    c.phone, c.name, c.collector_code, c.street_name, c.target, c.raised, c.remaining,
+    c.total, c.completed, c.needReturn, c.notOpened, c.notHandled, c.donePercent + '%',
+    ...periodNames.map(p => c.periodTotals[p] || 0),
+    c.note_before, c.note_after, c.collector_status, c.updater_phone,
+    c.note_before_yomkipur, c.note_after_yomkipur, c.collector_status_yomkipur,
+  ]);
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'מתרימים');
