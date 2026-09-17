@@ -1296,7 +1296,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteAfterYomKipur = r[53] || '';    // BB: תשובה - יום כיפור
         const collectorStatusYomKipur = '';        // אין עוד עמודה לזה - יתווסף בהמשך אם יידרש
         if (rowIdx < 5) {
-          console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[18]=${JSON.stringify(r[18])} r[19]=${JSON.stringify(r[19])} r[20]=${JSON.stringify(r[20])} | סה"כ עמודות בשורה=${r.length}`);
+          console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[44]=${JSON.stringify(r[44])} r[45]=${JSON.stringify(r[45])} r[52]=${JSON.stringify(r[52])} r[53]=${JSON.stringify(r[53])} | סה"כ עמודות בשורה=${r.length}`);
         }
         rowIdx++;
         insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur);
