@@ -48,9 +48,15 @@ ensureColumn('collectors', 'updater_phone', "TEXT DEFAULT ''");
 ensureColumn('donors', 'under_20', "INTEGER DEFAULT 0");
 ensureColumn('collectors', 'collector_code', "TEXT DEFAULT ''");
 ensureColumn('donors', 'system_id', "TEXT DEFAULT ''");
+ensureColumn('donors', 'manual_yom_kippur', "REAL DEFAULT 0");
+ensureColumn('donors', 'manual_sukkot', "REAL DEFAULT 0");
 ensureColumn('collectors', 'note_before_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'note_after_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'collector_status_yomkipur', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'status_rosh_hashana', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'status_yom_kippur', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'status_sukkot', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_sukkot', "TEXT DEFAULT ''");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -852,6 +858,16 @@ function getFullPeriodBreakdown(donors, archiveMap) {
   const liveTotal = donors.reduce((s, d) => s + (d.amount || 0) + (d.manual || 0), 0);
   if (totals[currentPeriod] === undefined) totals[currentPeriod] = 0;
   totals[currentPeriod] += liveTotal;
+
+  // תרומות ידניות שיוחסו מראש למגבית ספציפית (מעמודות R/S בגיליון תורמים) - נספרות
+  // תמיד לאותה מגבית, בלי קשר לאיזו מגבית פעילה כרגע
+  const yomKipurManual = donors.reduce((s, d) => s + (d.manual_yom_kippur || 0), 0);
+  const sukkotManual = donors.reduce((s, d) => s + (d.manual_sukkot || 0), 0);
+  if (totals['יום כיפור'] === undefined) totals['יום כיפור'] = 0;
+  if (totals['סוכות'] === undefined) totals['סוכות'] = 0;
+  totals['יום כיפור'] += yomKipurManual;
+  totals['סוכות'] += sukkotManual;
+
   return totals;
 }
 
@@ -944,6 +960,8 @@ function computeCollectorsFullData() {
         updater_phone: c.updater_phone || '', collector_code: c.collector_code || '',
         note_before_yomkipur: c.note_before_yomkipur || '', note_after_yomkipur: c.note_after_yomkipur || '',
         collector_status_yomkipur: c.collector_status_yomkipur || '',
+        status_rosh_hashana: c.status_rosh_hashana || '', status_yom_kippur: c.status_yom_kippur || '',
+        status_sukkot: c.status_sukkot || '', note_sukkot: c.note_sukkot || '',
       };
     }
     const streetCode = String(c.street_code || '').trim();
@@ -967,6 +985,10 @@ function computeCollectorsFullData() {
     if (c.note_before_yomkipur) byPhone[phone].note_before_yomkipur = c.note_before_yomkipur;
     if (c.note_after_yomkipur) byPhone[phone].note_after_yomkipur = c.note_after_yomkipur;
     if (c.collector_status_yomkipur) byPhone[phone].collector_status_yomkipur = c.collector_status_yomkipur;
+    if (c.status_rosh_hashana) byPhone[phone].status_rosh_hashana = c.status_rosh_hashana;
+    if (c.status_yom_kippur) byPhone[phone].status_yom_kippur = c.status_yom_kippur;
+    if (c.status_sukkot) byPhone[phone].status_sukkot = c.status_sukkot;
+    if (c.note_sukkot) byPhone[phone].note_sukkot = c.note_sukkot;
   });
 
   const allDonors = getAllDonors();
@@ -989,6 +1011,8 @@ function computeCollectorsFullData() {
       updater_phone: c.updater_phone, collector_code: c.collector_code,
       note_before_yomkipur: c.note_before_yomkipur, note_after_yomkipur: c.note_after_yomkipur,
       collector_status_yomkipur: c.collector_status_yomkipur,
+      status_rosh_hashana: c.status_rosh_hashana, status_yom_kippur: c.status_yom_kippur,
+      status_sukkot: c.status_sukkot, note_sukkot: c.note_sukkot,
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 }
@@ -1213,8 +1237,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const rows = readCsvText(csvText);
 
     const findExisting = db.prepare('SELECT id, amount FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
-    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ?, system_id = ? WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, system_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ?, system_id = ?, manual_yom_kippur = ?, manual_sukkot = ? WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, system_id, manual_yom_kippur, manual_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
     const skippedNames = [];
@@ -1223,6 +1247,8 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
       rows.forEach((r, idx) => {
         const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, statusRaw] = r;
         const systemId = r[11] || ''; // L: מזהה קבוע של התורם
+        const manualYomKipur = Number(r[17]) || 0; // R: תרומה ידנית יום כיפור
+        const manualSukkot = Number(r[18]) || 0;   // S: תרומה ידנית סוכות
         if (idx < 5) {
           console.log(`[sync-donors] שורה ${idx}: name=${name} | r[9]=${JSON.stringify(r[9])} r[10]=${JSON.stringify(r[10])} r[11]=${JSON.stringify(r[11])} r[12]=${JSON.stringify(r[12])} | סה"כ עמודות=${r.length}`);
         }
@@ -1243,10 +1269,10 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
           // תרומה ידנית וסטטוס תמיד באחריות הגיליון - נכתבים מחדש בכל סנכרון.
           const newAmount = existingAmount > 0 ? existingAmount : sheetAmount;
           if (newAmount > 0 && existingAmount === 0) amountsAdopted++;
-          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, systemId, existing.id);
+          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, systemId, manualYomKipur, manualSukkot, existing.id);
           updated++;
         } else {
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus, systemId);
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus, systemId, manualYomKipur, manualSukkot);
           created++;
         }
       });
@@ -1275,7 +1301,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code, note_before_yomkipur, note_after_yomkipur, collector_status_yomkipur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code, note_before_yomkipur, note_after_yomkipur, collector_status_yomkipur, status_rosh_hashana, status_yom_kippur, status_sukkot, note_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     let rowIdx = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
@@ -1295,11 +1321,15 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const noteBeforeYomKipur = r[52] || '';   // BA: תשובה יום ה - יום כיפור
         const noteAfterYomKipur = r[53] || '';    // BB: תשובה - יום כיפור
         const collectorStatusYomKipur = '';        // אין עוד עמודה לזה - יתווסף בהמשך אם יידרש
+        const statusRoshHashana = r[17] || '';   // R: סטאטוס ר"ה (נוסחה)
+        const statusYomKipur = r[29] || '';      // AD: סטאטוס יו"כ (נוסחה)
+        const statusSukkot = r[37] || '';        // AL: סטאטוס סוכות (נוסחה)
+        const noteSukkot = r[54] || '';          // BC: תשובת טלפן - סוכות
         if (rowIdx < 5) {
           console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[44]=${JSON.stringify(r[44])} r[45]=${JSON.stringify(r[45])} r[52]=${JSON.stringify(r[52])} r[53]=${JSON.stringify(r[53])} | סה"כ עמודות בשורה=${r.length}`);
         }
         rowIdx++;
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur);
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur, statusRoshHashana, statusYomKipur, statusSukkot, noteSukkot);
       });
     });
     tx(rows);
@@ -1388,17 +1418,27 @@ async function syncTelefonimSheet() {
     const byPhone = collectorsByPhone();
     const allDonors = getAllDonors();
     const archiveByDonor = getAllArchiveByDonorAndPeriod();
+    const currentPeriod = getCurrentPeriod();
+
+    // בלוק העמודות בגיליון שמתאים למגבית הפעילה כרגע (6 עמודות: סך תורמים,השלימו,צריך לחזור,נאסף,יעד,אחוז)
+    const periodStartCol = { 'ראש השנה': 11, 'יום כיפור': 23, 'סוכות': 31 }[currentPeriod] || 11;
 
     const collectorsPayload = Object.entries(byPhone).map(([phone, c]) => {
       const stats = donorStatsFor(c.assignments, allDonors);
-      const raised = Math.round(monthlyTotalForCollector(c.assignments, allDonors, archiveByDonor));
-      return { phone, total: stats.total, completed: stats.completed, needReturn: stats.needReturn, raised };
+      const collectorDonors = allDonors.filter(d => matchesAssignment(c.assignments, String(d.street_code), d.building));
+      const periodTotals = getFullPeriodBreakdown(collectorDonors, archiveByDonor);
+      const raisedThisPeriod = Math.round(periodTotals[currentPeriod] || 0);
+      const pct = c.target > 0 ? Math.round((raisedThisPeriod / c.target) * 100) : 0;
+      return {
+        phone, total: stats.total, completed: stats.completed, needReturn: stats.needReturn,
+        raised: raisedThisPeriod, target: c.target || 0, percent: pct,
+      };
     });
 
     const response = await fetch(TELEFONIM_EXPORT_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: TELEFONIM_EXPORT_SECRET, collectors: collectorsPayload }),
+      body: JSON.stringify({ secret: TELEFONIM_EXPORT_SECRET, collectors: collectorsPayload, startCol: periodStartCol }),
     });
     const result = await response.json();
     if (result.error) console.error('שגיאה בייצוא טלפנים:', result.error);
