@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS donors (
   status TEXT DEFAULT '',
   updated_at TEXT,
   under_20 INTEGER DEFAULT 0,  -- דגל: תרם פחות מ-20 ש"ח (עצמאי מהסטטוס והסכום)
-  system_id TEXT DEFAULT ''  -- מזהה קבוע של התורם מעמודה L בגיליון
+  system_id TEXT DEFAULT '',  -- מזהה קבוע של התורם מעמודה L בגיליון
+  manual_yom_kippur REAL DEFAULT 0,  -- תרומה ידנית יום כיפור (עמודה R בגיליון תורמים)
+  manual_sukkot REAL DEFAULT 0       -- תרומה ידנית סוכות (עמודה S בגיליון תורמים)
 );
 
 CREATE INDEX IF NOT EXISTS idx_donors_street ON donors(street_code);
@@ -33,7 +35,14 @@ CREATE TABLE IF NOT EXISTS collectors (
   note_after TEXT DEFAULT '',    -- תשובה אחרי הגבייה
   collector_status TEXT DEFAULT '',  -- סיווג סטטוס של המתרים עצמו (למשל "פעיל", "לא פנה אליו")
   updater_phone TEXT DEFAULT '',  -- נייד של מי שמעדכן את התרומות עבור מתרים שלא נוח לו לעדכן בעצמו
-  collector_code TEXT DEFAULT ''  -- "מזהה1" מהגיליון - קוד/מזהה פנימי של המתרים
+  collector_code TEXT DEFAULT '',  -- "מזהה1" מהגיליון - קוד/מזהה פנימי של המתרים
+  note_before_yomkipur TEXT DEFAULT '',
+  note_after_yomkipur TEXT DEFAULT '',
+  collector_status_yomkipur TEXT DEFAULT '',
+  status_rosh_hashana TEXT DEFAULT '',  -- עמודה R - נוסחה אוטומטית
+  status_yom_kippur TEXT DEFAULT '',    -- עמודה AD - נוסחה אוטומטית
+  status_sukkot TEXT DEFAULT '',        -- עמודה AL - נוסחה אוטומטית
+  note_sukkot TEXT DEFAULT ''           -- עמודה BC - תשובת טלפן לסוכות
 );
 
 CREATE INDEX IF NOT EXISTS idx_collectors_phone ON collectors(phone);
