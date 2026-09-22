@@ -197,12 +197,18 @@ function render() {
       ? `<div style="font-size:11px;color:#888;margin-top:8px;">אחוז מהיעד הכספי</div><div class="progress-wrap"><div class="progress-bar" style="width:${financialPct}%;background:linear-gradient(90deg,#534ab7,#8b7fd6);">${financialPct}%</div></div>`
       : '';
     const statusBadge = c.collector_status ? `<span style="background:#eee;border-radius:8px;padding:2px 8px;font-size:12px;color:#555;">${esc(c.collector_status)}</span>` : '';
-    const notesHtml = (c.note_before || c.note_after || c.note_before_yomkipur || c.note_after_yomkipur) ? `
+    const hasAnyNotes = c.note_before || c.note_after || c.note_before_yomkipur || c.note_after_yomkipur || c.note_sukkot
+      || c.status_rosh_hashana || c.status_yom_kippur || c.status_sukkot;
+    const notesHtml = hasAnyNotes ? `
         <div style="margin-top:8px;font-size:12px;color:#777;border-top:1px solid #eee;padding-top:6px;">
+          ${c.status_rosh_hashana ? '<b>סטטוס ר"ה:</b> ' + esc(c.status_rosh_hashana) + '<br>' : ''}
           ${c.note_before ? 'לפני (ר"ה): ' + esc(c.note_before) + '<br>' : ''}
           ${c.note_after ? 'אחרי (ר"ה): ' + esc(c.note_after) + '<br>' : ''}
+          ${c.status_yom_kippur ? '<b>סטטוס יו"כ:</b> ' + esc(c.status_yom_kippur) + '<br>' : ''}
           ${c.note_before_yomkipur ? 'לפני (יו"כ): ' + esc(c.note_before_yomkipur) + '<br>' : ''}
-          ${c.note_after_yomkipur ? 'אחרי (יו"כ): ' + esc(c.note_after_yomkipur) : ''}
+          ${c.note_after_yomkipur ? 'אחרי (יו"כ): ' + esc(c.note_after_yomkipur) + '<br>' : ''}
+          ${c.status_sukkot ? '<b>סטטוס סוכות:</b> ' + esc(c.status_sukkot) + '<br>' : ''}
+          ${c.note_sukkot ? 'תשובה (סוכות): ' + esc(c.note_sukkot) : ''}
         </div>` : '';
     return `
       <div class="card${incomplete ? ' incomplete' : ''}">
