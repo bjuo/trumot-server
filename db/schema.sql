@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS collectors (
   status_rosh_hashana TEXT DEFAULT '',  -- עמודה R - נוסחה אוטומטית
   status_yom_kippur TEXT DEFAULT '',    -- עמודה AD - נוסחה אוטומטית
   status_sukkot TEXT DEFAULT '',        -- עמודה AL - נוסחה אוטומטית
-  note_sukkot TEXT DEFAULT ''           -- עמודה BC - תשובת טלפן לסוכות
+  note_before_sukkot TEXT DEFAULT '',   -- עמודה BC - תשובה לפני הגבייה - סוכות
+  note_after_sukkot TEXT DEFAULT ''     -- עמודה BD - תשובה אחרי הגבייה - סוכות
 );
 
 CREATE INDEX IF NOT EXISTS idx_collectors_phone ON collectors(phone);
