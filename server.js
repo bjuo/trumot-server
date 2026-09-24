@@ -914,6 +914,14 @@ app.get('/api/admin/clear-stale-statuses', (req, res) => {
   res.json({ message: `נוקו ${count} סטטוסים ישנים (רק אלו שאף שיחת טלפון לא נגעה בהם מאז הסגירה האחרונה).` });
 });
 
+// כמו הניקוי של סטטוסים - מנקה סכומים שנדבקו מהסנכרון הישן, רק אם אף שיחת טלפון
+// לא נגעה בתורם מאז (updated_at ריק). סכום שהתעדכן דרך הטלפון בפועל לא נפגע.
+app.get('/api/admin/clear-stale-amounts', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const count = db.prepare("UPDATE donors SET amount = 0 WHERE amount > 0 AND updated_at IS NULL").run().changes;
+  res.json({ message: `נוקו ${count} סכומים ישנים (רק אלו שאף שיחת טלפון לא נגעה בהם מאז הסגירה האחרונה).` });
+});
+
 app.get('/api/admin/close-campaign', (req, res) => {
   if (!checkPin(req, res)) return;
   const closingPeriod = req.query.closingPeriod || getCurrentPeriod();
