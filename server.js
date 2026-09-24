@@ -906,6 +906,14 @@ app.get('/api/admin/reset-manual-baseline', (req, res) => {
   res.json({ message: `נקבעה תמונת מצב לתרומה ידנית עבור ${count} תורמים. שום נתון חי לא נגע בו.` });
 });
 
+// ניקוי חד-פעמי: מנקה רק סטטוסים ישנים שנדבקו מלפני התיקון ושאף שיחת טלפון לא נגעה בהם
+// מאז (updated_at ריק) - כך שסטטוס שנקבע בפועל דרך הטלפון במגבית הנוכחית לא נפגע.
+app.get('/api/admin/clear-stale-statuses', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const count = db.prepare("UPDATE donors SET status = '' WHERE status != '' AND updated_at IS NULL").run().changes;
+  res.json({ message: `נוקו ${count} סטטוסים ישנים (רק אלו שאף שיחת טלפון לא נגעה בהם מאז הסגירה האחרונה).` });
+});
+
 app.get('/api/admin/close-campaign', (req, res) => {
   if (!checkPin(req, res)) return;
   const closingPeriod = req.query.closingPeriod || getCurrentPeriod();
