@@ -50,13 +50,17 @@ ensureColumn('collectors', 'collector_code', "TEXT DEFAULT ''");
 ensureColumn('donors', 'system_id', "TEXT DEFAULT ''");
 ensureColumn('donors', 'manual_yom_kippur', "REAL DEFAULT 0");
 ensureColumn('donors', 'manual_sukkot', "REAL DEFAULT 0");
+ensureColumn('donors', 'baseline_amount', "REAL DEFAULT 0");
+ensureColumn('donors', 'baseline_manual', "REAL DEFAULT 0");
+ensureColumn('donors', 'baseline_status', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'note_before_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'note_after_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'collector_status_yomkipur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'status_rosh_hashana', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'status_yom_kippur', "TEXT DEFAULT ''");
 ensureColumn('collectors', 'status_sukkot', "TEXT DEFAULT ''");
-ensureColumn('collectors', 'note_sukkot', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_before_sukkot', "TEXT DEFAULT ''");
+ensureColumn('collectors', 'note_after_sukkot', "TEXT DEFAULT ''");
 ensureColumn('campaign_archive', 'period_name', "TEXT DEFAULT ''");
 
 // ============================================================================
@@ -795,11 +799,12 @@ function closeCurrentCampaign(closingPeriodName, nextPeriodName) {
   const now = new Date().toISOString();
   const donors = getAllDonors();
   const insertArchive = db.prepare('INSERT INTO campaign_archive (donor_id, amount, manual, status, updated_at, closed_at, period_name) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  const resetDonor = db.prepare('UPDATE donors SET amount = 0, manual = 0, status = \'\', updated_at = NULL WHERE id = ?');
+  const resetDonor = db.prepare('UPDATE donors SET amount = 0, manual = 0, status = \'\', updated_at = NULL, baseline_manual = ? WHERE id = ?');
   const tx = db.transaction(rows => {
     rows.forEach(d => {
       insertArchive.run(d.id, d.amount || 0, d.manual || 0, d.status || '', d.updated_at, now, closingPeriodName);
-      resetDonor.run(d.id);
+      // שומרים "תמונת מצב" של התרומה הידנית הישנה - כדי שסנכרון עתידי יתעלם ממנה אם היא לא השתנתה בגיליון
+      resetDonor.run(d.manual || 0, d.id);
     });
   });
   tx(donors);
@@ -893,6 +898,14 @@ function checkPin(req, res) {
   return true;
 }
 
+// פעולה בטוחה: קובעת "תמונת מצב" של התרומה הידנית הנוכחית בלבד, בלי לארכב או לאפס כלום.
+// שימושי אחרי עדכון קוד, כדי שסנכרון עתידי ידע להתעלם מזבל ישן, בלי לגעת בנתונים חיים.
+app.get('/api/admin/reset-manual-baseline', (req, res) => {
+  if (!checkPin(req, res)) return;
+  const count = db.prepare('UPDATE donors SET baseline_manual = manual').run().changes;
+  res.json({ message: `נקבעה תמונת מצב לתרומה ידנית עבור ${count} תורמים. שום נתון חי לא נגע בו.` });
+});
+
 app.get('/api/admin/close-campaign', (req, res) => {
   if (!checkPin(req, res)) return;
   const closingPeriod = req.query.closingPeriod || getCurrentPeriod();
@@ -961,7 +974,7 @@ function computeCollectorsFullData() {
         note_before_yomkipur: c.note_before_yomkipur || '', note_after_yomkipur: c.note_after_yomkipur || '',
         collector_status_yomkipur: c.collector_status_yomkipur || '',
         status_rosh_hashana: c.status_rosh_hashana || '', status_yom_kippur: c.status_yom_kippur || '',
-        status_sukkot: c.status_sukkot || '', note_sukkot: c.note_sukkot || '',
+        status_sukkot: c.status_sukkot || '', note_before_sukkot: c.note_before_sukkot || '', note_after_sukkot: c.note_after_sukkot || '',
       };
     }
     const streetCode = String(c.street_code || '').trim();
@@ -988,7 +1001,8 @@ function computeCollectorsFullData() {
     if (c.status_rosh_hashana) byPhone[phone].status_rosh_hashana = c.status_rosh_hashana;
     if (c.status_yom_kippur) byPhone[phone].status_yom_kippur = c.status_yom_kippur;
     if (c.status_sukkot) byPhone[phone].status_sukkot = c.status_sukkot;
-    if (c.note_sukkot) byPhone[phone].note_sukkot = c.note_sukkot;
+    if (c.note_before_sukkot) byPhone[phone].note_before_sukkot = c.note_before_sukkot;
+    if (c.note_after_sukkot) byPhone[phone].note_after_sukkot = c.note_after_sukkot;
   });
 
   const allDonors = getAllDonors();
@@ -1012,7 +1026,7 @@ function computeCollectorsFullData() {
       note_before_yomkipur: c.note_before_yomkipur, note_after_yomkipur: c.note_after_yomkipur,
       collector_status_yomkipur: c.collector_status_yomkipur,
       status_rosh_hashana: c.status_rosh_hashana, status_yom_kippur: c.status_yom_kippur,
-      status_sukkot: c.status_sukkot, note_sukkot: c.note_sukkot,
+      status_sukkot: c.status_sukkot, note_before_sukkot: c.note_before_sukkot, note_after_sukkot: c.note_after_sukkot,
     };
   }).sort((a, b) => a.donePercent - b.donePercent || b.raised - a.raised);
 }
@@ -1236,43 +1250,39 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const findExisting = db.prepare('SELECT id, amount FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
-    const updateFull = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, amount = ?, manual = ?, status = ?, system_id = ?, manual_yom_kippur = ?, manual_sukkot = ? WHERE id = ?');
-    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, amount, manual, status, system_id, manual_yom_kippur, manual_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    // הערה: amount ו-status של תורם קיים אף פעם לא נקראים מהגיליון - הם באחריות בלעדית
+    // של הטלפון/המערכת שלנו. תרומה ידנית כללית מוגנת מפני "זבל" ישן שנשאר בגיליון
+    // ולא השתנה מאז סגירת המגבית האחרונה - כדי שתתייחס רק למגבית הפעילה כרגע.
+    const findExisting = db.prepare('SELECT id, baseline_manual FROM donors WHERE street_code = ? AND building = ? AND donor_code = ?');
+    const updateBasic = db.prepare('UPDATE donors SET street_name = ?, apartment = ?, name = ?, manual = ?, system_id = ?, manual_yom_kippur = ?, manual_sukkot = ? WHERE id = ?');
+    const insertNew = db.prepare('INSERT INTO donors (street_code, street_name, building, apartment, donor_code, name, manual, system_id, manual_yom_kippur, manual_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
-    let updated = 0, created = 0, amountsAdopted = 0, skipped = 0;
+    let updated = 0, created = 0, skipped = 0;
     const skippedNames = [];
     console.log(`[sync-donors] מתחיל, סה"כ שורות מהגיליון: ${rows.length}`);
     const tx = db.transaction(rows => {
       rows.forEach((r, idx) => {
-        const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw, statusRaw] = r;
+        const [street_code, street_name, building, apartment, donor_code, name, amountRaw, manualRaw] = r;
         const systemId = r[11] || ''; // L: מזהה קבוע של התורם
         const manualYomKipur = Number(r[17]) || 0; // R: תרומה ידנית יום כיפור
         const manualSukkot = Number(r[18]) || 0;   // S: תרומה ידנית סוכות
-        if (idx < 5) {
-          console.log(`[sync-donors] שורה ${idx}: name=${name} | r[9]=${JSON.stringify(r[9])} r[10]=${JSON.stringify(r[10])} r[11]=${JSON.stringify(r[11])} r[12]=${JSON.stringify(r[12])} | סה"כ עמודות=${r.length}`);
-        }
         if (!street_code || !building || !donor_code) {
           skipped++;
           skippedNames.push(`${name || '(ללא שם)'} - ${street_name || ''} בניין ${building || '?'}`);
-          console.log(`[sync-donors] שורה ${idx} דולגה - חסר מידע. תוכן: ${JSON.stringify(r)}`);
           return;
         }
-        const sheetAmount = Number(amountRaw) || 0;
         const sheetManual = Number(manualRaw) || 0;
-        const sheetStatus = statusRaw || '';
         const existing = findExisting.get(street_code, building, donor_code);
 
         if (existing) {
-          const existingAmount = existing.amount || 0;
-          // הסכום הרגיל (טלפוני) מוגן ברגע שיש לו ערך אמיתי - לא נדרס יותר מהגיליון.
-          // תרומה ידנית וסטטוס תמיד באחריות הגיליון - נכתבים מחדש בכל סנכרון.
-          const newAmount = existingAmount > 0 ? existingAmount : sheetAmount;
-          if (newAmount > 0 && existingAmount === 0) amountsAdopted++;
-          updateFull.run(street_name, apartment, name, newAmount, sheetManual, sheetStatus, systemId, manualYomKipur, manualSukkot, existing.id);
+          const baselineManual = existing.baseline_manual || 0;
+          // אם התרומה הידנית בגיליון זהה למה שהיה שם בסגירת המגבית האחרונה - זה "זבל" ישן, מתעלמים (0)
+          const newManual = sheetManual !== baselineManual ? sheetManual : 0;
+          updateBasic.run(street_name, apartment, name, newManual, systemId, manualYomKipur, manualSukkot, existing.id);
           updated++;
         } else {
-          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetAmount, sheetManual, sheetStatus, systemId, manualYomKipur, manualSukkot);
+          // תורם חדש: amount ו-status תמיד מתחילים ריקים/0, בלי קשר למה שכתוב בגיליון בעמודות האלה
+          insertNew.run(street_code, street_name, building, apartment, donor_code, name, sheetManual, systemId, manualYomKipur, manualSukkot);
           created++;
         }
       });
@@ -1280,7 +1290,7 @@ app.post('/api/admin/sync-donors-from-sheet', async (req, res) => {
     tx(rows);
     console.log(`[sync-donors] סיום. עודכנו: ${updated}, נוצרו: ${created}, דולגו: ${skipped}`);
 
-    let message = `סונכרן: ${updated} תורמים עודכנו (מתוכם ${amountsAdopted} אימצו סכום מהגיליון), ${created} תורמים חדשים נוספו.`;
+    let message = `סונכרן: ${updated} תורמים עודכנו, ${created} תורמים חדשים נוספו. (amount/status לא נגעו בהם - באחריות הטלפון בלבד)`;
     if (skipped > 0) {
       message += ` ${skipped} שורות דולגו כי חסר להן קוד רחוב/בניין/קוד תורם: ${skippedNames.slice(0, 20).join(' | ')}${skipped > 20 ? ' ...ועוד' : ''}`;
     }
@@ -1301,7 +1311,7 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
     const csvText = await response.text();
     const rows = readCsvText(csvText);
 
-    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code, note_before_yomkipur, note_after_yomkipur, collector_status_yomkipur, status_rosh_hashana, status_yom_kippur, status_sukkot, note_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO collectors (phone, name, street_name, street_code, buildings, target, note_before, note_after, collector_status, updater_phone, collector_code, note_before_yomkipur, note_after_yomkipur, collector_status_yomkipur, status_rosh_hashana, status_yom_kippur, status_sukkot, note_before_sukkot, note_after_sukkot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     let rowIdx = 0;
     const tx = db.transaction(rows => {
       db.prepare('DELETE FROM collectors').run();
@@ -1324,12 +1334,13 @@ app.post('/api/admin/sync-collectors-from-sheet', async (req, res) => {
         const statusRoshHashana = r[17] || '';   // R: סטאטוס ר"ה (נוסחה)
         const statusYomKipur = r[29] || '';      // AD: סטאטוס יו"כ (נוסחה)
         const statusSukkot = r[37] || '';        // AL: סטאטוס סוכות (נוסחה)
-        const noteSukkot = r[54] || '';          // BC: תשובת טלפן - סוכות
+        const noteBeforeSukkot = r[54] || '';    // BC: תשובה לפני הגבייה - סוכות
+        const noteAfterSukkot = r[55] || '';     // BD: תשובה אחרי הגבייה - סוכות
         if (rowIdx < 5) {
           console.log(`[sync-collectors] שורה ${rowIdx}: phone=${phone} name=${name} | r[44]=${JSON.stringify(r[44])} r[45]=${JSON.stringify(r[45])} r[52]=${JSON.stringify(r[52])} r[53]=${JSON.stringify(r[53])} | סה"כ עמודות בשורה=${r.length}`);
         }
         rowIdx++;
-        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur, statusRoshHashana, statusYomKipur, statusSukkot, noteSukkot);
+        insert.run(normalizePhone(phone), name, street_name, street_code, buildings, target, noteBefore, noteAfter, collectorStatus, updaterPhone, collector_code, noteBeforeYomKipur, noteAfterYomKipur, collectorStatusYomKipur, statusRoshHashana, statusYomKipur, statusSukkot, noteBeforeSukkot, noteAfterSukkot);
       });
     });
     tx(rows);
