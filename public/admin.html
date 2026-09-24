@@ -38,6 +38,7 @@
   <input type="password" id="pin" placeholder="הקוד הסודי">
   <button onclick="loadAll()">התחבר וטען נתונים</button>
   <button class="danger" onclick="closeCampaign()">סגור מגבית ופתח חדשה</button>
+  <button class="secondary" onclick="resetManualBaseline()">אפס תמונת מצב תרומה ידנית (בטוח)</button>
   <a href="/telefonim.html" target="_blank" style="align-self:center;">פתח מסך ניהול טלפנים ←</a>
 </div>
 <div id="status"></div>
@@ -268,6 +269,16 @@ async function closeCampaign() {
     const r = await api('/api/admin/close-campaign?closingPeriod=' + encodeURIComponent(closingPeriod) + '&nextPeriod=' + encodeURIComponent(nextPeriod || ''));
     document.getElementById('status').textContent = r.message;
     loadDonors();
+  } catch (e) {
+    document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+  }
+}
+
+async function resetManualBaseline() {
+  if (!confirm('זה יגדיר את מצב "תרומה ידנית" הנוכחי כברירת המחדל, כדי שסנכרון עתידי יתעלם מזבל ישן. לא נוגע בשום נתון חי. להמשיך?')) return;
+  try {
+    const r = await api('/api/admin/reset-manual-baseline');
+    document.getElementById('status').textContent = r.message;
   } catch (e) {
     document.getElementById('status').textContent = 'שגיאה: ' + e.message;
   }
