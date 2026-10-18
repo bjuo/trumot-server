@@ -898,6 +898,48 @@ function checkPin(req, res) {
   return true;
 }
 
+// גיבוי מלא: מוריד את כל קובץ מסד הנתונים (כולל ארכיון מגביות, הגדרות וכל הטבלאות).
+app.get('/api/admin/backup-db', async (req, res) => {
+  if (!checkPin(req, res)) return;
+  const tmp = path.join(path.dirname(DB_FILE), 'backup-tmp-' + Date.now() + '.db');
+  try {
+    await db.backup(tmp);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.download(tmp, 'trumot-backup-' + stamp + '.db', () => {
+      fs.unlink(tmp, () => {});
+    });
+  } catch (e) {
+    fs.unlink(tmp, () => {});
+    res.status(500).json({ error: 'הגיבוי נכשל: ' + e.message });
+  }
+});
+
+// שחזור מגיבוי: מחליף את כל מסד הנתונים החי בקובץ שהועלה, ואז מפעיל מחדש את השרת.
+app.post('/api/admin/restore-db', express.raw({ type: '*/*', limit: '300mb' }), (req, res) => {
+  if (!checkPin(req, res)) return;
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 100 || buf.slice(0, 16).toString('latin1') !== 'SQLite format 3\0') {
+    return res.status(400).json({ error: 'הקובץ אינו קובץ גיבוי תקין של SQLite.' });
+  }
+  const tmp = DB_FILE + '.restore-tmp';
+  try {
+    fs.writeFileSync(tmp, buf);
+    // בדיקת תקינות: הקובץ נפתח ומכיל את טבלת התורמים
+    const test = new Database(tmp, { readonly: true });
+    const ok = test.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='donors'").get();
+    test.close();
+    if (!ok) { fs.unlinkSync(tmp); return res.status(400).json({ error: 'הקובץ לא מכיל את טבלת התורמים - לא גיבוי של המערכת הזו.' }); }
+    db.close();
+    for (const ext of ['-wal', '-shm']) { try { fs.unlinkSync(DB_FILE + ext); } catch (e) {} }
+    fs.renameSync(tmp, DB_FILE);
+    res.json({ message: 'השחזור הושלם. השרת מופעל מחדש כעת - המתן כחצי דקה ורענן את הדף.' });
+    setTimeout(() => process.exit(0), 500);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (x) {}
+    res.status(500).json({ error: 'השחזור נכשל: ' + e.message });
+  }
+});
+
 // פעולה בטוחה: קובעת "תמונת מצב" של התרומה הידנית הנוכחית בלבד, בלי לארכב או לאפס כלום.
 // שימושי אחרי עדכון קוד, כדי שסנכרון עתידי ידע להתעלם מזבל ישן, בלי לגעת בנתונים חיים.
 app.get('/api/admin/reset-manual-baseline', (req, res) => {
