@@ -41,6 +41,9 @@
   <button class="secondary" onclick="resetManualBaseline()">אפס תמונת מצב תרומה ידנית (בטוח)</button>
   <button class="danger" onclick="clearStaleStatuses()">נקה סטטוסים ישנים (חד-פעמי)</button>
   <button class="danger" onclick="clearStaleAmounts()">נקה סכומים ישנים (חד-פעמי)</button>
+  <button class="secondary" onclick="downloadBackup()">הורד גיבוי מלא</button>
+  <button class="danger" onclick="document.getElementById('restoreFile').click()">שחזר מגיבוי</button>
+  <input type="file" id="restoreFile" accept=".db" style="display:none" onchange="restoreBackup(this)">
   <a href="/telefonim.html" target="_blank" style="align-self:center;">פתח מסך ניהול טלפנים ←</a>
 </div>
 <div id="status"></div>
@@ -137,6 +140,26 @@
 
 <script>
 function pin() { return document.getElementById('pin').value.trim(); }
+function downloadBackup() {
+  if (!pin()) { alert('נא להקליד קוד גישה'); return; }
+  window.location.href = '/api/admin/backup-db?pin=' + encodeURIComponent(pin());
+}
+async function restoreBackup(input) {
+  const f = input.files[0];
+  input.value = '';
+  if (!f) return;
+  if (!pin()) { alert('נא להקליד קוד גישה'); return; }
+  if (!confirm('אזהרה: פעולה זו מחליפה את כל הנתונים החיים במערכת (תורמים, מתרימים, ארכיון, הגדרות) בתוכן הקובץ "' + f.name + '". להמשיך?')) return;
+  const el = document.getElementById('status');
+  el.textContent = 'מעלה ומשחזר...';
+  try {
+    const res = await fetch('/api/admin/restore-db?pin=' + encodeURIComponent(pin()), {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f
+    });
+    const j = await res.json();
+    el.textContent = j.message || j.error || 'שגיאה';
+  } catch (e) { el.textContent = 'השחזור נשלח; ייתכן שהשרת מופעל מחדש. רענן את הדף בעוד חצי דקה. (' + e.message + ')'; }
+}
 
 async function api(path, opts) {
   const url = path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin());
